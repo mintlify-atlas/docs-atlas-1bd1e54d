@@ -1,0 +1,345 @@
+---
+title: Kilo Code integration
+description: Connect Kilo Code with Antigravity Manager for multi-account AI coding assistance
+---
+
+## Overview
+
+Kilo Code is an AI coding assistant that can be configured to use Antigravity Manager for multi-account support and automatic quota management.
+
+<Warning>
+Kilo Code requires specific protocol configuration to work correctly with Antigravity Manager. Always use the Gemini protocol, not OpenAI.
+</Warning>
+
+## Prerequisites
+
+- Antigravity Manager installed and running
+- Kilo Code installed
+- Active accounts with Gemini models
+
+## Configuration
+
+<Steps>
+  <Step title="Start Antigravity proxy">
+    1. Open Antigravity Manager
+    2. Go to **API Proxy** tab
+    3. Enable the proxy server
+    4. Note the port (default: 8045)
+  </Step>
+
+  <Step title="Configure Kilo Code">
+    In Kilo Code settings:
+    
+    1. **Base URL**: `http://127.0.0.1:8045`
+    2. **Protocol**: Select **Gemini** (not OpenAI)
+    3. **API Key**: `sk-antigravity` (or your configured key)
+  </Step>
+
+  <Step title="Test connection">
+    Send a test message to verify the integration works correctly.
+  </Step>
+</Steps>
+
+## Important: Protocol selection
+
+<Warning>
+**Always use Gemini protocol with Kilo Code.**
+
+Kilo Code has a known issue where OpenAI mode generates invalid request paths:
+- Correct: `/v1/chat/completions`
+- Kilo Code bug: `/v1/chat/completions/responses`
+
+This causes 404 errors with Antigravity. The Gemini protocol works correctly.
+</Warning>
+
+### Why Gemini protocol?
+
+<Tabs>
+  <Tab title="Gemini (Recommended)">
+    ```
+    ✅ Path: /v1/models/gemini-3-flash:generateContent
+    ✅ Works: Correct Gemini API path
+    ✅ Result: Successful requests
+    ```
+    
+    Uses correct Gemini API endpoints that Antigravity handles natively.
+  </Tab>
+  
+  <Tab title="OpenAI (Broken)">
+    ```
+    ❌ Path: /v1/chat/completions/responses
+    ❌ Error: 404 Not Found
+    ❌ Reason: Kilo Code appends invalid path suffix
+    ```
+    
+    Generates malformed URLs that Antigravity cannot route.
+  </Tab>
+</Tabs>
+
+## Model configuration
+
+### Recommended models
+
+Configure these models in Kilo Code:
+
+<CardGroup cols={2}>
+  <Card title="gemini-3-flash" icon="bolt">
+    **Use for**: Quick responses, code completion, simple refactoring
+    
+    **Quota**: High free tier limits
+    
+    **Speed**: Fastest response times
+  </Card>
+  
+  <Card title="gemini-3-pro-high" icon="brain">
+    **Use for**: Complex analysis, architecture discussions, debugging
+    
+    **Quota**: Pro tier required
+    
+    **Quality**: Best reasoning capability
+  </Card>
+</CardGroup>
+
+### Model mapping
+
+If Kilo Code's model names don't match Antigravity's defaults:
+
+<Steps>
+  <Step title="Check Kilo Code logs">
+    Find the exact model name Kilo Code is requesting:
+    
+    ```bash
+    # In Antigravity, enable debug logging
+    # Check logs for incoming model names
+    ```
+  </Step>
+
+  <Step title="Create custom mapping">
+    In Antigravity **Model Routing**:
+    
+    1. Add new mapping rule
+    2. **From**: Kilo Code's model name
+    3. **To**: Your Gemini model (e.g., `gemini-3-flash`)
+    4. Save configuration
+  </Step>
+
+  <Step title="Test mapping">
+    Send a request from Kilo Code and verify it routes correctly.
+  </Step>
+</Steps>
+
+## Configuration examples
+
+### Basic setup
+
+```json
+{
+  "baseURL": "http://127.0.0.1:8045",
+  "protocol": "gemini",
+  "apiKey": "sk-antigravity",
+  "models": [
+    "gemini-3-flash",
+    "gemini-3-pro-high"
+  ]
+}
+```
+
+### With model mapping
+
+If Kilo Code uses different model names:
+
+```json
+// Antigravity model routing config
+{
+  "mappings": [
+    {
+      "from": "kilo-fast",
+      "to": "gemini-3-flash"
+    },
+    {
+      "from": "kilo-pro",
+      "to": "gemini-3-pro-high"
+    }
+  ]
+}
+```
+
+### Remote server
+
+For remote Antigravity deployments:
+
+```json
+{
+  "baseURL": "http://192.168.1.100:8045",
+  "protocol": "gemini",
+  "apiKey": "your-api-key"
+}
+```
+
+<Note>
+Ensure Antigravity has **Allow LAN Access** enabled for remote connections.
+</Note>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="404 Not Found errors">
+    **Problem**: All requests return 404
+
+    **Most likely cause**: Using OpenAI protocol instead of Gemini
+
+    **Solution**:
+    1. Open Kilo Code settings
+    2. Change protocol to **Gemini**
+    3. Save and restart Kilo Code
+    4. Test again
+  </Accordion>
+
+  <Accordion title="Connection refused">
+    **Problem**: `ECONNREFUSED 127.0.0.1:8045`
+
+    **Solutions**:
+    1. Verify Antigravity proxy is running
+    2. Check port in Antigravity **API Proxy** tab
+    3. Test with: `curl http://127.0.0.1:8045/health`
+    4. Check firewall settings
+  </Accordion>
+
+  <Accordion title="Model not found">
+    **Problem**: `Model 'xyz' not found`
+
+    **Solutions**:
+    1. Check model name in Kilo Code matches Antigravity
+    2. Create custom model mapping in Antigravity
+    3. Enable debug logging to see requested model names
+    4. Verify accounts support the requested model
+  </Accordion>
+
+  <Accordion title="Slow responses">
+    **Problem**: Requests take a long time
+
+    **Solutions**:
+    1. Check account quotas in Antigravity dashboard
+    2. Verify using appropriate model (Flash for speed)
+    3. Check network latency to Antigravity server
+    4. Review rate limiting settings
+  </Accordion>
+
+  <Accordion title="Authentication errors">
+    **Problem**: 401 Unauthorized
+
+    **Solutions**:
+    1. Check if authentication is enabled in Antigravity
+    2. Use correct API key from **API Proxy** settings
+    3. Verify API key in Kilo Code configuration
+    4. Test with curl to isolate issue
+  </Accordion>
+</AccordionGroup>
+
+## Debugging guide
+
+### Enable debug logging
+
+1. In Antigravity, go to **Settings**
+2. Enable **Debug Logging**
+3. Save configuration
+
+### Check logs
+
+<Tabs>
+  <Tab title="macOS">
+    ```bash
+    tail -f ~/Library/Logs/com.lbjlaq.antigravity-tools/antigravity.log
+    ```
+  </Tab>
+  
+  <Tab title="Linux">
+    ```bash
+    tail -f ~/.local/share/com.lbjlaq.antigravity-tools/logs/antigravity.log
+    ```
+  </Tab>
+  
+  <Tab title="Windows">
+    ```powershell
+    Get-Content $env:APPDATA\com.lbjlaq.antigravity-tools\logs\antigravity.log -Wait
+    ```
+  </Tab>
+</Tabs>
+
+### Test manually
+
+Verify Antigravity is working correctly:
+
+```bash
+# Test health endpoint
+curl http://127.0.0.1:8045/health
+
+# Test Gemini endpoint
+curl -X POST http://127.0.0.1:8045/v1/models/gemini-3-flash:generateContent \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-antigravity" \
+  -d '{
+    "contents": [{
+      "parts": [{"text": "Hello"}],
+      "role": "user"
+    }]
+  }'
+```
+
+## Performance optimization
+
+### Model selection
+
+<CardGroup cols={2}>
+  <Card title="Code completion" icon="code">
+    Use **gemini-3-flash**
+    - Fastest responses
+    - Sufficient for completions
+    - High quota limits
+  </Card>
+  
+  <Card title="Complex tasks" icon="brain">
+    Use **gemini-3-pro-high**
+    - Better reasoning
+    - For refactoring/architecture
+    - Lower quota, use sparingly
+  </Card>
+</CardGroup>
+
+### Quota management
+
+1. **Monitor usage**: Check Antigravity dashboard regularly
+2. **Enable quota protection**: Prevent exhaustion
+3. **Add accounts**: More accounts = better distribution
+4. **Smart routing**: Let Antigravity balance load automatically
+
+## Best practices
+
+<Steps>
+  <Step title="Always use Gemini protocol">
+    Avoid OpenAI protocol due to Kilo Code's path bug
+  </Step>
+
+  <Step title="Configure model mappings early">
+    Set up custom mappings before extensive use
+  </Step>
+
+  <Step title="Enable debug logging initially">
+    Helps catch configuration issues early
+  </Step>
+
+  <Step title="Test with curl first">
+    Verify Antigravity works before debugging Kilo Code
+  </Step>
+
+  <Step title="Monitor quotas">
+    Regular checks prevent unexpected interruptions
+  </Step>
+</Steps>
+
+## Related documentation
+
+- [Gemini API format](/api/gemini-format)
+- [Model routing configuration](/configuration/model-mapping)
+- [API Proxy settings](/configuration/proxy-settings)
+- [Troubleshooting guide](/troubleshooting/common-issues)

@@ -1,0 +1,526 @@
+---
+title: Headless Mode for Servers
+description: Run Antigravity Manager in headless mode for server deployments without GUI
+---
+
+## Overview
+
+Headless mode allows Antigravity Manager to run on servers without a graphical desktop environment. It provides full functionality through a Web-based interface and API endpoints.
+
+<Info>
+  Headless mode is automatically enabled when using Docker or running with the `--headless` flag.
+</Info>
+
+## Headless vs Desktop Mode
+
+<CardGroup cols={2}>
+  <Card title="Headless Mode">
+    - Web-based management UI
+    - API-first design
+    - No GUI dependencies
+    - Perfect for servers/containers
+    - Lower resource usage
+  </Card>
+  <Card title="Desktop Mode">
+    - Native desktop application
+    - System tray integration
+    - Tauri-based GUI
+    - Local OAuth callbacks
+    - Auto-update support
+  </Card>
+</CardGroup>
+
+## Running Headless Mode
+
+### Direct Binary Execution
+
+```bash
+# Download or build the binary
+./antigravity-tools --headless
+```
+
+### With Environment Variables
+
+```bash
+export API_KEY="sk-your-secure-key"
+export WEB_PASSWORD="admin-password"
+export LOG_LEVEL="info"
+export PORT="8045"
+
+./antigravity-tools --headless
+```
+
+### Systemd Service (Linux)
+
+Create a systemd service for automatic startup:
+
+```ini /etc/systemd/system/antigravity-manager.service
+[Unit]
+Description=Antigravity Manager Headless Service
+After=network.target
+
+[Service]
+Type=simple
+User=antigravity
+WorkingDirectory=/opt/antigravity
+ExecStart=/opt/antigravity/antigravity-tools --headless
+
+# Environment variables
+Environment="API_KEY=sk-your-secure-key"
+Environment="WEB_PASSWORD=your-admin-password"
+Environment="LOG_LEVEL=info"
+Environment="ABV_BIND_LOCAL_ONLY=false"
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Restart policy
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable antigravity-manager
+sudo systemctl start antigravity-manager
+sudo systemctl status antigravity-manager
+```
+
+## Headless-Specific Configuration
+
+### Environment Variables
+
+<ParamField path="API_KEY" type="string" required>
+  API key for authenticating API requests from AI clients.
+  
+  **Also accepts**: `ABV_API_KEY`
+</ParamField>
+
+<ParamField path="WEB_PASSWORD" type="string">
+  Password for Web UI login. If not set, uses `API_KEY`.
+  
+  **Also accepts**: `ABV_WEB_PASSWORD`
+</ParamField>
+
+<ParamField path="AUTH_MODE" type="string" default="AllExceptHealth">
+  Authentication mode in headless:
+  - `AllExceptHealth`: Auth required except `/health` (default in headless)
+  - `Strict`: Auth required for all endpoints
+  - `Off`: No authentication (dangerous!)
+  - `Auto`: Automatically determined
+  
+  **Also accepts**: `ABV_AUTH_MODE`
+</ParamField>
+
+<ParamField path="ABV_BIND_LOCAL_ONLY" type="boolean" default="false">
+  - `true`: Bind to `127.0.0.1` (localhost only)
+  - `false`: Bind to `0.0.0.0` (all network interfaces)
+  
+  In Docker/headless mode, defaults to `false` to allow LAN access.
+</ParamField>
+
+<ParamField path="PORT" type="integer" default="8045">
+  Port for the Web UI and API endpoints.
+</ParamField>
+
+<ParamField path="ABV_MAX_BODY_SIZE" type="integer" default="104857600">
+  Maximum request body size (bytes). Default: 100MB for large image uploads.
+</ParamField>
+
+<ParamField path="ABV_DIST_PATH" type="string" default="/app/dist">
+  Path to frontend static files. Pre-configured in Docker images.
+</ParamField>
+
+<ParamField path="ABV_PUBLIC_URL" type="string">
+  Public URL for OAuth callbacks when behind reverse proxy.
+  
+  Example: `https://antigravity.example.com`
+</ParamField>
+
+<ParamField path="LOG_LEVEL" type="string" default="info">
+  Logging verbosity: `debug`, `info`, `warn`, `error`
+</ParamField>
+
+<ParamField path="RUST_LOG" type="string" default="info">
+  Rust-specific logging. Overrides `LOG_LEVEL` for Rust components.
+</ParamField>
+
+### Code Reference
+
+Headless mode initialization is in `src-tauri/src/lib.rs:109-289`:
+
+<CodeGroup>
+
+```rust Headless Mode Detection
+let args: Vec<String> = std::env::args().collect();
+let is_headless = args.iter().any(|arg| arg == "--headless");
+
+if is_headless {
+    info!("Starting in HEADLESS mode...");
+    // ... headless initialization
+}
+```
+
+```rust Environment Variable Injection
+// API Key injection (lines 186-198)
+let env_key = std::env::var("ABV_API_KEY")
+    .or_else(|_| std::env::var("API_KEY"))
+    .ok();
+
+if let Some(key) = env_key {
+    if !key.trim().is_empty() {
+        info!("Using API Key from environment variable");
+        config.proxy.api_key = key;
+        modified = true;
+    }
+}
+
+// Web password injection (lines 200-212)
+let env_web_password = std::env::var("ABV_WEB_PASSWORD")
+    .or_else(|_| std::env::var("WEB_PASSWORD"))
+    .ok();
+
+if let Some(pwd) = env_web_password {
+    if !pwd.trim().is_empty() {
+        info!("Using Web UI Password from environment variable");
+        config.proxy.admin_password = Some(pwd);
+        modified = true;
+    }
+}
+```
+
+```rust Network Binding Logic
+// Headless defaults to LAN access (lines 166-176)
+let bind_local_only = std::env::var("ABV_BIND_LOCAL_ONLY")
+    .map(|v| matches!(v.to_lowercase().as_str(), "1" | "true" | "yes" | "on"))
+    .unwrap_or(false);
+
+if bind_local_only {
+    config.proxy.allow_lan_access = false;
+    modified = true;
+} else {
+    config.proxy.allow_lan_access = true;
+}
+```
+
+</CodeGroup>
+
+## Web UI Access
+
+In headless mode, access the management interface at:
+
+```
+http://localhost:8045
+```
+
+Or from another device on the network (if `ABV_BIND_LOCAL_ONLY=false`):
+
+```
+http://192.168.1.100:8045
+```
+
+### Web UI Features
+
+<Steps>
+  <Step title="Account Management">
+    Add, edit, and remove Google accounts via OAuth flow
+  </Step>
+  <Step title="Quota Monitoring">
+    Real-time quota tracking and account health status
+  </Step>
+  <Step title="API Configuration">
+    Configure proxy settings, model routing, and API keys
+  </Step>
+  <Step title="Logs and Monitoring">
+    View API request logs, token usage, and system status
+  </Step>
+  <Step title="Settings">
+    Configure security, IP whitelisting, and advanced options
+  </Step>
+</Steps>
+
+## Security Considerations
+
+<Warning>
+  Headless mode forces `auth_mode` to `AllExceptHealth` if it was `Off` or `Auto`.
+</Warning>
+
+### Authentication Flow
+
+1. **Web UI Login**: Uses `WEB_PASSWORD` (or `API_KEY` if not set)
+2. **API Requests**: Use `API_KEY` in `Authorization` header
+3. **Health Endpoint**: Always accessible at `/health` (no auth)
+
+### Firewall Configuration
+
+<CodeGroup>
+
+```bash UFW (Ubuntu)
+# Allow port 8045 from specific IP
+sudo ufw allow from 192.168.1.0/24 to any port 8045
+
+# Or allow from anywhere (less secure)
+sudo ufw allow 8045
+```
+
+```bash firewalld (RHEL/CentOS)
+# Allow port 8045
+sudo firewall-cmd --permanent --add-port=8045/tcp
+sudo firewall-cmd --reload
+```
+
+```bash iptables
+# Allow port 8045
+sudo iptables -A INPUT -p tcp --dport 8045 -j ACCEPT
+sudo iptables-save > /etc/iptables/rules.v4
+```
+
+</CodeGroup>
+
+## Logging and Monitoring
+
+### Log Locations
+
+- **Application Data**: `~/.antigravity_tools/`
+- **Logs**: `~/.antigravity_tools/logs/` (if configured)
+- **Configuration**: `~/.antigravity_tools/gui_config.json`
+
+### View Logs
+
+<Tabs>
+  <Tab title="Systemd Service">
+    ```bash
+    # Real-time logs
+    sudo journalctl -u antigravity-manager -f
+    
+    # Last 100 lines
+    sudo journalctl -u antigravity-manager -n 100
+    
+    # Since boot
+    sudo journalctl -u antigravity-manager -b
+    ```
+  </Tab>
+  
+  <Tab title="Docker Container">
+    ```bash
+    # Real-time logs
+    docker logs -f antigravity-manager
+    
+    # Last 100 lines
+    docker logs --tail 100 antigravity-manager
+    
+    # Since timestamp
+    docker logs --since 2026-03-03T10:00:00 antigravity-manager
+    ```
+  </Tab>
+  
+  <Tab title="Direct Execution">
+    ```bash
+    # With debug logging
+    LOG_LEVEL=debug ./antigravity-tools --headless
+    
+    # Or redirect to file
+    ./antigravity-tools --headless 2>&1 | tee antigravity.log
+    ```
+  </Tab>
+</Tabs>
+
+### Health Check Endpoint
+
+```bash
+curl http://localhost:8045/health
+```
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "version": "4.1.27"
+}
+```
+
+Use this for monitoring tools like Prometheus, Uptime Kuma, or Nagios.
+
+## OAuth in Headless Mode
+
+<Info>
+  OAuth callbacks work in headless mode through the Web UI's built-in OAuth handler.
+</Info>
+
+### Standard OAuth Flow
+
+1. Access Web UI at `http://your-server:8045`
+2. Navigate to **Accounts → Add Account → OAuth**
+3. Copy the generated authorization URL
+4. Open URL in any browser (can be on different device)
+5. Complete Google OAuth authorization
+6. Browser redirects to callback URL
+7. Web UI automatically completes the flow
+
+### Behind Reverse Proxy
+
+If behind a reverse proxy, set the public URL:
+
+```bash
+export ABV_PUBLIC_URL="https://antigravity.example.com"
+```
+
+This ensures OAuth callbacks redirect to your public domain instead of `localhost:8045`.
+
+## Headless-Specific Features
+
+### Automatic Admin Server
+
+Headless mode automatically starts the admin server on port 8045 to serve the Web UI:
+
+```rust
+// From lib.rs:356-373
+if let Ok(config) = modules::config::load_app_config() {
+    // Ensure admin server is running
+    if let Err(e) = commands::proxy::ensure_admin_server(
+        config.proxy.clone(),
+        &state,
+        integration.clone(),
+        Arc::new(cf_state.inner().clone()),
+    ).await {
+        error!("Failed to start admin server: {}", e);
+    }
+}
+```
+
+### No Tray Icon
+
+Headless mode automatically disables system tray:
+
+```rust
+let tray_enabled = should_enable_tray();
+// Returns false in headless mode
+```
+
+### Graceful Shutdown
+
+Headless mode handles `Ctrl+C` for clean shutdown:
+
+```rust
+// Wait for Ctrl-C
+tokio::signal::ctrl_c().await.ok();
+info!("Headless mode shutting down");
+```
+
+## Performance Tuning
+
+### Resource Limits
+
+For systemd services:
+
+```ini /etc/systemd/system/antigravity-manager.service
+[Service]
+# Memory limit
+MemoryLimit=1G
+
+# CPU quota (50% of one core)
+CPUQuota=50%
+
+# Max open files
+LimitNOFILE=4096
+```
+
+### Concurrency Settings
+
+Adjust in `gui_config.json`:
+
+```json
+{
+  "proxy": {
+    "max_connections": 100,
+    "request_timeout": 30,
+    "max_retries": 3
+  }
+}
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Cannot access Web UI from other devices">
+    1. Check `ABV_BIND_LOCAL_ONLY` is `false`:
+       ```bash
+       grep allow_lan_access ~/.antigravity_tools/gui_config.json
+       ```
+    
+    2. Verify firewall allows port 8045:
+       ```bash
+       sudo netstat -tlnp | grep 8045
+       ```
+    
+    3. Test from server:
+       ```bash
+       curl http://localhost:8045/health
+       ```
+  </Accordion>
+
+  <Accordion title="OAuth callbacks fail">
+    1. Ensure admin server is running:
+       ```bash
+       curl http://localhost:8045
+       ```
+    
+    2. If behind reverse proxy, set `ABV_PUBLIC_URL`
+    
+    3. Check firewall allows callback port
+  </Accordion>
+
+  <Accordion title="High CPU usage">
+    1. Check for excessive logging:
+       ```bash
+       export LOG_LEVEL=warn
+       ```
+    
+    2. Review background tasks in logs:
+       ```bash
+       journalctl -u antigravity-manager | grep -i "background\|task\|scheduler"
+       ```
+    
+    3. Smart scheduler is disabled by default (v4.1.24+)
+  </Accordion>
+
+  <Accordion title="Service won't start">
+    1. Check systemd status:
+       ```bash
+       sudo systemctl status antigravity-manager
+       ```
+    
+    2. Review recent logs:
+       ```bash
+       sudo journalctl -u antigravity-manager -n 50
+       ```
+    
+    3. Verify binary path and permissions:
+       ```bash
+       ls -la /opt/antigravity/antigravity-tools
+       ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Reverse Proxy Setup" icon="shield" href="/deployment/reverse-proxy">
+    Add HTTPS and custom domain with Nginx or Caddy
+  </Card>
+  <Card title="API Integration" icon="code" href="/api/quick-start">
+    Connect Claude CLI, OpenCode, and other clients
+  </Card>
+  <Card title="Security Best Practices" icon="lock" href="/security/overview">
+    Configure IP whitelisting, rate limiting, and authentication
+  </Card>
+  <Card title="Monitoring" icon="chart-line" href="/features/monitoring">
+    Set up Prometheus, Grafana, or other monitoring tools
+  </Card>
+</CardGroup>

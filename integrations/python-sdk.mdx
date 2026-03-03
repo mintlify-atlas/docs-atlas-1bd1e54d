@@ -1,0 +1,417 @@
+---
+title: Python SDK integration
+description: Use Antigravity Manager with OpenAI, Anthropic, and Google Python SDKs
+---
+
+## Overview
+
+Antigravity Manager is compatible with official Python SDKs from OpenAI, Anthropic, and Google, allowing you to use familiar APIs with multi-account management and automatic quota rotation.
+
+## Installation
+
+Install the SDK you want to use:
+
+<CodeGroup>
+```bash OpenAI SDK
+pip install openai
+```
+
+```bash Anthropic SDK
+pip install anthropic
+```
+
+```bash Google AI SDK
+pip install google-generativeai
+```
+</CodeGroup>
+
+## OpenAI SDK
+
+### Basic chat completion
+
+```python
+import openai
+
+client = openai.OpenAI(
+    api_key="sk-antigravity",
+    base_url="http://127.0.0.1:8045/v1"
+)
+
+response = client.chat.completions.create(
+    model="gemini-3-flash",
+    messages=[
+        {"role": "user", "content": "Hello, please introduce yourself"}
+    ]
+)
+
+print(response.choices[0].message.content)
+```
+
+### Streaming responses
+
+```python
+response = client.chat.completions.create(
+    model="claude-sonnet-4-6",
+    messages=[
+        {"role": "user", "content": "Write a short story"}
+    ],
+    stream=True
+)
+
+for chunk in response:
+    if chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="")
+```
+
+### Image generation
+
+```python
+import base64
+
+# Generate image
+response = client.images.generate(
+    model="gemini-3-pro-image",
+    prompt="A futuristic cityscape with neon lights and flying cars",
+    size="1920x1080",
+    quality="hd",
+    n=1,
+    response_format="b64_json"
+)
+
+# Save image
+image_data = base64.b64decode(response.data[0].b64_json)
+with open("output.png", "wb") as f:
+    f.write(image_data)
+```
+
+### Multi-modal input
+
+```python
+import base64
+
+# Read and encode image
+with open("image.jpg", "rb") as f:
+    image_data = base64.b64encode(f.read()).decode()
+
+response = client.chat.completions.create(
+    model="gemini-3-flash",
+    messages=[
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "What's in this image?"},
+                {
+                    "type": "image_url",
+                    "image_url": {
+                        "url": f"data:image/jpeg;base64,{image_data}"
+                    }
+                }
+            ]
+        }
+    ]
+)
+
+print(response.choices[0].message.content)
+```
+
+## Anthropic SDK
+
+### Basic message
+
+```python
+import anthropic
+
+client = anthropic.Anthropic(
+    api_key="sk-antigravity",
+    base_url="http://127.0.0.1:8045"
+)
+
+message = client.messages.create(
+    model="claude-sonnet-4-6",
+    max_tokens=1024,
+    messages=[
+        {"role": "user", "content": "Hello, Claude!"}
+    ]
+)
+
+print(message.content[0].text)
+```
+
+### Streaming messages
+
+```python
+with client.messages.stream(
+    model="claude-sonnet-4-6",
+    max_tokens=2048,
+    messages=[
+        {"role": "user", "content": "Tell me about Rust"}
+    ]
+) as stream:
+    for text in stream.text_stream:
+        print(text, end="")
+```
+
+### Extended thinking
+
+```python
+message = client.messages.create(
+    model="claude-sonnet-4-6-thinking",
+    max_tokens=4096,
+    thinking={
+        "type": "adaptive",
+        "budget_tokens": 24576
+    },
+    messages=[
+        {"role": "user", "content": "Solve this complex problem..."}
+    ]
+)
+
+# Access thinking and response
+for block in message.content:
+    if block.type == "thinking":
+        print(f"Thinking: {block.thinking}")
+    elif block.type == "text":
+        print(f"Response: {block.text}")
+```
+
+### Tool use
+
+```python
+tools = [
+    {
+        "name": "get_weather",
+        "description": "Get weather for a location",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "location": {"type": "string"}
+            },
+            "required": ["location"]
+        }
+    }
+]
+
+message = client.messages.create(
+    model="claude-sonnet-4-6",
+    max_tokens=1024,
+    tools=tools,
+    messages=[
+        {"role": "user", "content": "What's the weather in Tokyo?"}
+    ]
+)
+
+# Handle tool use
+for block in message.content:
+    if block.type == "tool_use":
+        print(f"Tool: {block.name}")
+        print(f"Input: {block.input}")
+```
+
+## Google Generative AI SDK
+
+<Note>
+The Google SDK requires configuring a custom HTTP client to use Antigravity's proxy.
+</Note>
+
+### Basic generation
+
+```python
+import google.generativeai as genai
+import requests
+
+# Configure proxy
+session = requests.Session()
+session.proxies = {
+    "http": "http://127.0.0.1:8045",
+    "https": "http://127.0.0.1:8045"
+}
+
+genai.configure(
+    api_key="sk-antigravity",
+    transport="rest",
+    client_options={"http_client": session}
+)
+
+model = genai.GenerativeModel("gemini-3-flash")
+response = model.generate_content("Hello, Gemini!")
+
+print(response.text)
+```
+
+### Streaming
+
+```python
+response = model.generate_content(
+    "Write a poem about coding",
+    stream=True
+)
+
+for chunk in response:
+    print(chunk.text, end="")
+```
+
+## Environment variables
+
+For easier configuration, use environment variables:
+
+```bash
+# OpenAI SDK
+export OPENAI_API_KEY="sk-antigravity"
+export OPENAI_BASE_URL="http://127.0.0.1:8045/v1"
+
+# Anthropic SDK
+export ANTHROPIC_API_KEY="sk-antigravity"
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8045"
+```
+
+Then in Python:
+
+```python
+import openai
+import anthropic
+
+# Automatically uses environment variables
+openai_client = openai.OpenAI()
+anthropic_client = anthropic.Anthropic()
+```
+
+## Error handling
+
+```python
+from openai import OpenAI, OpenAIError
+
+client = OpenAI(
+    api_key="sk-antigravity",
+    base_url="http://127.0.0.1:8045/v1"
+)
+
+try:
+    response = client.chat.completions.create(
+        model="gemini-3-flash",
+        messages=[{"role": "user", "content": "Hello"}]
+    )
+    print(response.choices[0].message.content)
+except OpenAIError as e:
+    print(f"Error: {e}")
+    # Antigravity automatically retries on 429/401
+    # If this fails, all accounts are likely exhausted
+```
+
+## Best practices
+
+<CardGroup cols={2}>
+  <Card title="Use streaming" icon="stream">
+    Enable streaming for long responses to improve perceived performance
+  </Card>
+  
+  <Card title="Handle errors gracefully" icon="triangle-exclamation">
+    Implement retry logic and error handling for production use
+  </Card>
+  
+  <Card title="Monitor quotas" icon="gauge">
+    Regularly check Antigravity dashboard for account status
+  </Card>
+  
+  <Card title="Set appropriate limits" icon="limit">
+    Configure `max_tokens` based on your use case to avoid unnecessary quota consumption
+  </Card>
+</CardGroup>
+
+## Complete examples
+
+### Chatbot with history
+
+```python
+import openai
+
+client = openai.OpenAI(
+    api_key="sk-antigravity",
+    base_url="http://127.0.0.1:8045/v1"
+)
+
+messages = []
+
+while True:
+    user_input = input("You: ")
+    if user_input.lower() == "exit":
+        break
+    
+    messages.append({"role": "user", "content": user_input})
+    
+    response = client.chat.completions.create(
+        model="gemini-3-flash",
+        messages=messages
+    )
+    
+    assistant_message = response.choices[0].message.content
+    messages.append({"role": "assistant", "content": assistant_message})
+    
+    print(f"Assistant: {assistant_message}")
+```
+
+### Batch image generation
+
+```python
+import openai
+import base64
+import os
+
+client = openai.OpenAI(
+    api_key="sk-antigravity",
+    base_url="http://127.0.0.1:8045/v1"
+)
+
+prompts = [
+    "A serene mountain landscape",
+    "A futuristic cityscape",
+    "An underwater coral reef"
+]
+
+os.makedirs("images", exist_ok=True)
+
+for i, prompt in enumerate(prompts):
+    response = client.images.generate(
+        model="gemini-3-pro-image",
+        prompt=prompt,
+        size="1024x1024",
+        quality="hd"
+    )
+    
+    image_data = base64.b64decode(response.data[0].b64_json)
+    with open(f"images/image_{i+1}.png", "wb") as f:
+        f.write(image_data)
+    
+    print(f"Generated: {prompt}")
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection refused">
+    Verify Antigravity proxy is running:
+    
+    ```bash
+    curl http://127.0.0.1:8045/health
+    ```
+  </Accordion>
+  
+  <Accordion title="Invalid API key">
+    Check authentication settings in Antigravity **API Proxy** tab. If enabled, use the actual API key.
+  </Accordion>
+  
+  <Accordion title="Model not found">
+    Verify model name matches those available in Antigravity. Check the dashboard for active models.
+  </Accordion>
+  
+  <Accordion title="Quota exceeded">
+    All accounts may be exhausted. Check Antigravity dashboard and refresh account quotas.
+  </Accordion>
+</AccordionGroup>
+
+## Related documentation
+
+- [OpenAI API format](/api/openai-format)
+- [Anthropic API format](/api/anthropic-format)
+- [Gemini API format](/api/gemini-format)
+- [Image generation](/api/image-generation)
+- [Streaming responses](/api/streaming)

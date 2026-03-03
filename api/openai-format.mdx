@@ -1,0 +1,322 @@
+---
+title: "OpenAI Format - /v1/chat/completions"
+description: "OpenAI-compatible chat completions endpoint for standardized AI integration"
+---
+
+## Endpoint
+
+```
+POST http://127.0.0.1:8045/v1/chat/completions
+```
+
+The OpenAI-compatible endpoint provides seamless integration with 99% of existing AI applications, allowing you to use Gemini and Claude models through the standard OpenAI format.
+
+## Authentication
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token authentication
+  ```
+  Authorization: Bearer sk-antigravity
+  ```
+</ParamField>
+
+Alternatively, use the `api_key` header:
+
+<ParamField header="api_key" type="string">
+  API key for authentication
+</ParamField>
+
+## Request Headers
+
+<ParamField header="Content-Type" type="string" required>
+  Must be `application/json`
+</ParamField>
+
+## Request Body
+
+<ParamField body="model" type="string" required>
+  Model identifier. Supports:
+  - `gemini-3-flash` - Fast responses
+  - `gemini-3-pro-high` - High quality reasoning
+  - `gemini-3-pro-low` - Cost-efficient
+  - `claude-sonnet-4-6` - Latest Claude Sonnet
+  - `claude-sonnet-4-6-thinking` - With extended thinking
+  - Custom model mappings from your configuration
+</ParamField>
+
+<ParamField body="messages" type="array" required>
+  Array of message objects forming the conversation
+  
+  <Expandable title="Message Object">
+    <ParamField body="role" type="string" required>
+      Message role: `user`, `assistant`, `system`, or `tool`
+    </ParamField>
+    
+    <ParamField body="content" type="string | array" required>
+      Message content. Can be:
+      - String: Plain text message
+      - Array: Multi-modal content with text and images
+    </ParamField>
+    
+    <ParamField body="name" type="string">
+      Optional name for the message sender
+    </ParamField>
+    
+    <ParamField body="tool_calls" type="array">
+      Tool calls made by the assistant
+    </ParamField>
+    
+    <ParamField body="tool_call_id" type="string">
+      ID of the tool call this message responds to
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="stream" type="boolean" default="false">
+  Enable streaming responses via Server-Sent Events (SSE)
+</ParamField>
+
+<ParamField body="max_tokens" type="integer">
+  Maximum tokens to generate in the response
+</ParamField>
+
+<ParamField body="temperature" type="number">
+  Sampling temperature (0.0 to 2.0). Higher values make output more random.
+</ParamField>
+
+<ParamField body="top_p" type="number">
+  Nucleus sampling parameter (0.0 to 1.0)
+</ParamField>
+
+<ParamField body="tools" type="array">
+  Available tools for function calling
+  
+  <Expandable title="Tool Definition">
+    <ParamField body="type" type="string">
+      Tool type, typically `function`
+    </ParamField>
+    
+    <ParamField body="function" type="object">
+      Function definition with name, description, and parameters schema
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="tool_choice" type="string | object">
+  Controls tool usage: `auto`, `none`, or specific tool selection
+</ParamField>
+
+<ParamField body="thinking" type="object">
+  Extended thinking configuration for compatible models
+  
+  <Expandable title="Thinking Config">
+    <ParamField body="type" type="string">
+      Thinking mode: `enabled`, `disabled`, or `adaptive`
+    </ParamField>
+    
+    <ParamField body="budget_tokens" type="integer">
+      Token budget for reasoning (e.g., 8192, 16384, 24576)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Response Format
+
+### Non-Streaming Response
+
+<ResponseField name="id" type="string">
+  Unique identifier for this completion
+</ResponseField>
+
+<ResponseField name="object" type="string">
+  Object type, always `chat.completion`
+</ResponseField>
+
+<ResponseField name="created" type="integer">
+  Unix timestamp of creation
+</ResponseField>
+
+<ResponseField name="model" type="string">
+  Model used for generation
+</ResponseField>
+
+<ResponseField name="choices" type="array">
+  Array of completion choices
+  
+  <Expandable title="Choice Object">
+    <ResponseField name="index" type="integer">
+      Choice index
+    </ResponseField>
+    
+    <ResponseField name="message" type="object">
+      Generated message
+      
+      <Expandable title="Message Fields">
+        <ResponseField name="role" type="string">
+          Always `assistant`
+        </ResponseField>
+        
+        <ResponseField name="content" type="string">
+          Generated text content
+        </ResponseField>
+        
+        <ResponseField name="reasoning_content" type="string">
+          Reasoning tokens for thinking models (if available)
+        </ResponseField>
+        
+        <ResponseField name="tool_calls" type="array">
+          Tool calls made by the assistant
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    
+    <ResponseField name="finish_reason" type="string">
+      Reason for completion: `stop`, `length`, `tool_calls`, `content_filter`
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="usage" type="object">
+  Token usage statistics
+  
+  <Expandable title="Usage Object">
+    <ResponseField name="prompt_tokens" type="integer">
+      Tokens in the prompt
+    </ResponseField>
+    
+    <ResponseField name="completion_tokens" type="integer">
+      Tokens in the completion
+    </ResponseField>
+    
+    <ResponseField name="total_tokens" type="integer">
+      Total tokens used
+    </ResponseField>
+    
+    <ResponseField name="completion_tokens_details" type="object">
+      Detailed breakdown
+      
+      <Expandable title="Details">
+        <ResponseField name="reasoning_tokens" type="integer">
+          Tokens used for reasoning (thinking models)
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example: Basic Chat
+
+```bash
+curl -X POST http://127.0.0.1:8045/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-antigravity" \
+  -d '{
+    "model": "gemini-3-flash",
+    "messages": [
+      {"role": "user", "content": "你好,请自我介绍"}
+    ]
+  }'
+```
+
+## Example: With Streaming
+
+```bash
+curl -X POST http://127.0.0.1:8045/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-antigravity" \
+  -d '{
+    "model": "gemini-3-pro-high",
+    "messages": [
+      {"role": "user", "content": "Write a poem about AI"}
+    ],
+    "stream": true
+  }'
+```
+
+## Example: Python SDK
+
+```python
+import openai
+
+client = openai.OpenAI(
+    api_key="sk-antigravity",
+    base_url="http://127.0.0.1:8045/v1"
+)
+
+response = client.chat.completions.create(
+    model="gemini-3-flash",
+    messages=[{"role": "user", "content": "你好,请自我介绍"}]
+)
+
+print(response.choices[0].message.content)
+```
+
+## Example: Multi-Modal (Image)
+
+```python
+import openai
+import base64
+
+client = openai.OpenAI(
+    api_key="sk-antigravity",
+    base_url="http://127.0.0.1:8045/v1"
+)
+
+# Read image and encode to base64
+with open("image.jpg", "rb") as f:
+    image_data = base64.b64encode(f.read()).decode()
+
+response = client.chat.completions.create(
+    model="gemini-3-flash",
+    messages=[{
+        "role": "user",
+        "content": [
+            {"type": "text", "text": "What's in this image?"},
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/jpeg;base64,{image_data}"
+                }
+            }
+        ]
+    }]
+)
+
+print(response.choices[0].message.content)
+```
+
+## Model Routing
+
+Antigravity Manager automatically routes models to the appropriate backend:
+
+- **Gemini models** → Google AI API via internal v1 protocol
+- **Claude models** → Anthropic API via model mapping
+- **Custom mappings** → Configure in Model Router settings
+
+## Features
+
+- **Auto-conversion**: Non-stream requests automatically converted to streaming for better quota management
+- **Session affinity**: Maintains account consistency for multi-turn conversations
+- **Smart retry**: Automatic account rotation on failures (429, 401 errors)
+- **Tool calling**: Full support for function calling with automatic MCP integration
+- **Multi-modal**: Supports images, audio, and documents in messages
+
+## Error Responses
+
+Errors follow OpenAI format:
+
+```json
+{
+  "error": {
+    "message": "Error description",
+    "type": "invalid_request_error",
+    "code": "model_not_found"
+  }
+}
+```
+
+Common HTTP status codes:
+- `400` - Invalid request format
+- `401` - Authentication failed
+- `429` - Rate limit exceeded (triggers auto-retry)
+- `503` - No available accounts

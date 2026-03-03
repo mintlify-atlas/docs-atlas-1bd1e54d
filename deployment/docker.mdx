@@ -1,0 +1,456 @@
+---
+title: Docker Deployment
+description: Deploy Antigravity Manager as a Docker container with Web UI and API support
+---
+
+## Overview
+
+Antigravity Manager provides a native headless Docker deployment with built-in Web UI hosting and API proxy capabilities. Perfect for NAS, servers, and containerized environments.
+
+<Info>
+  Docker deployment automatically runs in **headless mode** with Web-based management instead of a desktop GUI.
+</Info>
+
+## System Requirements
+
+<CardGroup cols={2}>
+  <Card title="Memory">
+    - **Minimum**: 256MB RAM
+    - **Recommended**: 1GB RAM
+  </Card>
+  <Card title="Architecture">
+    - x86_64 (amd64)
+    - ARM64 (aarch64)
+  </Card>
+</CardGroup>
+
+## Quick Start
+
+### Pull and Run (Recommended)
+
+Pull the pre-built image from Docker Hub:
+
+```bash
+docker run -d \
+  --name antigravity-manager \
+  -p 8045:8045 \
+  -e API_KEY=your-api-key \
+  -e WEB_PASSWORD=your-login-password \
+  -e ABV_MAX_BODY_SIZE=104857600 \
+  -v ~/.antigravity_tools:/root/.antigravity_tools \
+  lbjlaq/antigravity-manager:latest
+```
+
+<Warning>
+  **Security**: Replace `your-api-key` and `your-login-password` with strong, unique values.
+</Warning>
+
+### Verify Installation
+
+Check container logs to confirm startup:
+
+```bash
+docker logs antigravity-manager
+```
+
+You should see:
+```
+🚀 Headless mode proxy service starting...
+📍 Port: 8045
+🔑 Current API Key: your-api-key
+🔐 Web UI Password: your-login-password
+```
+
+## Environment Variables
+
+<ParamField path="API_KEY" type="string" required>
+  API key for AI requests. Used by Claude Code CLI, OpenAI-compatible clients, etc.
+  
+  **Alias**: `ABV_API_KEY`
+</ParamField>
+
+<ParamField path="WEB_PASSWORD" type="string">
+  Password for Web UI login. If not set, falls back to `API_KEY`.
+  
+  **Alias**: `ABV_WEB_PASSWORD`
+</ParamField>
+
+<ParamField path="ABV_MAX_BODY_SIZE" type="integer" default="104857600">
+  Maximum request body size in bytes. Default is 100MB for handling large images.
+</ParamField>
+
+<ParamField path="PORT" type="integer" default="8045">
+  Internal container port (usually don't change this).
+</ParamField>
+
+<ParamField path="LOG_LEVEL" type="string" default="info">
+  Logging verbosity: `debug`, `info`, `warn`, or `error`.
+</ParamField>
+
+<ParamField path="ABV_BIND_LOCAL_ONLY" type="boolean" default="false">
+  Bind to `127.0.0.1` only (localhost). Default is `0.0.0.0` (all interfaces) for Docker.
+</ParamField>
+
+<ParamField path="ABV_PUBLIC_URL" type="string">
+  Public URL for OAuth callbacks when behind reverse proxy (e.g., `https://antigravity.example.com`).
+</ParamField>
+
+<ParamField path="ABV_DIST_PATH" type="string" default="/app/dist">
+  Path to frontend static files (pre-configured in image).
+</ParamField>
+
+<ParamField path="AUTH_MODE" type="string" default="AllExceptHealth">
+  Authentication mode: `Off`, `Strict`, `AllExceptHealth`, or `Auto`.
+  
+  **Alias**: `ABV_AUTH_MODE`
+</ParamField>
+
+## Authentication Modes
+
+<Tabs>
+  <Tab title="Scenario A: API_KEY Only">
+    ```bash
+    docker run -d \
+      --name antigravity-manager \
+      -p 8045:8045 \
+      -e API_KEY=sk-your-secret-key \
+      -v ~/.antigravity_tools:/root/.antigravity_tools \
+      lbjlaq/antigravity-manager:latest
+    ```
+
+    **Behavior:**
+    - **Web Login**: Use `API_KEY` as password
+    - **API Calls**: Use `API_KEY` in `Authorization` header
+  </Tab>
+
+  <Tab title="Scenario B: Separate Passwords (Recommended)">
+    ```bash
+    docker run -d \
+      --name antigravity-manager \
+      -p 8045:8045 \
+      -e API_KEY=sk-api-secret \
+      -e WEB_PASSWORD=admin-password-123 \
+      -v ~/.antigravity_tools:/root/.antigravity_tools \
+      lbjlaq/antigravity-manager:latest
+    ```
+
+    **Behavior:**
+    - **Web Login**: Use `WEB_PASSWORD` (API_KEY rejected for security)
+    - **API Calls**: Use `API_KEY` only
+    - **Use Case**: Share API key with team, keep admin password private
+  </Tab>
+</Tabs>
+
+## Volume Mounts
+
+<Warning>
+  **Data Persistence Required**: Always mount `/root/.antigravity_tools` to preserve accounts and configuration.
+</Warning>
+
+### Default Mount
+
+```bash
+-v ~/.antigravity_tools:/root/.antigravity_tools
+```
+
+Stores:
+- Account tokens and OAuth credentials
+- Application configuration (`gui_config.json`)
+- Proxy logs and statistics
+- Token usage database
+
+### Custom Mount Location
+
+```bash
+-v /path/to/your/data:/root/.antigravity_tools
+```
+
+## Port Mapping
+
+<CardGroup cols={2}>
+  <Card title="Default: 8045:8045">
+    Standard port mapping for both Web UI and API
+  </Card>
+  <Card title="Custom: 3000:8045">
+    Map host port 3000 to container port 8045
+  </Card>
+</CardGroup>
+
+```bash
+# Custom port example
+docker run -d \
+  --name antigravity-manager \
+  -p 3000:8045 \
+  -e API_KEY=sk-test \
+  -v ~/.antigravity_tools:/root/.antigravity_tools \
+  lbjlaq/antigravity-manager:latest
+```
+
+Access at: `http://localhost:3000`
+
+## Accessing the Container
+
+<Tabs>
+  <Tab title="Web UI">
+    **Management Interface:**
+    ```
+    http://localhost:8045
+    ```
+
+    Login with `WEB_PASSWORD` (or `API_KEY` if password not set).
+  </Tab>
+
+  <Tab title="API Endpoints">
+    **OpenAI-Compatible:**
+    ```
+    http://localhost:8045/v1/chat/completions
+    http://localhost:8045/v1/images/generate
+    ```
+
+    **Anthropic-Compatible:**
+    ```
+    http://localhost:8045/v1/messages
+    ```
+
+    **Gemini-Compatible:**
+    ```
+    http://localhost:8045/v1beta/models
+    ```
+  </Tab>
+
+  <Tab title="Health Check">
+    ```bash
+    curl http://localhost:8045/health
+    ```
+
+    Response:
+    ```json
+    {"status":"ok","version":"4.1.27"}
+    ```
+  </Tab>
+</Tabs>
+
+## Managing the Container
+
+<CodeGroup>
+
+```bash View Logs
+# Real-time logs
+docker logs -f antigravity-manager
+
+# Last 100 lines
+docker logs --tail 100 antigravity-manager
+```
+
+```bash Restart
+docker restart antigravity-manager
+```
+
+```bash Stop
+docker stop antigravity-manager
+```
+
+```bash Remove
+docker stop antigravity-manager
+docker rm antigravity-manager
+```
+
+```bash Update
+# Pull latest image
+docker pull lbjlaq/antigravity-manager:latest
+
+# Recreate container
+docker stop antigravity-manager
+docker rm antigravity-manager
+
+# Start with same settings
+docker run -d \
+  --name antigravity-manager \
+  -p 8045:8045 \
+  -e API_KEY=your-api-key \
+  -e WEB_PASSWORD=your-password \
+  -v ~/.antigravity_tools:/root/.antigravity_tools \
+  lbjlaq/antigravity-manager:latest
+```
+
+</CodeGroup>
+
+## Finding Your Credentials
+
+If you forgot your API key or password:
+
+<Tabs>
+  <Tab title="Docker Logs">
+    ```bash
+    docker logs antigravity-manager | grep -E "API Key|Password"
+    ```
+  </Tab>
+
+  <Tab title="Configuration File">
+    ```bash
+    cat ~/.antigravity_tools/gui_config.json | grep -E '"api_key"|"admin_password"'
+    ```
+  </Tab>
+</Tabs>
+
+## Building Custom Image
+
+For development or customization:
+
+```bash
+# Clone repository
+git clone https://github.com/lbjlaq/Antigravity-Manager.git
+cd Antigravity-Manager
+
+# Build with default settings
+docker build -t antigravity-manager:custom -f docker/Dockerfile .
+
+# Build with China mirror acceleration
+docker build --build-arg USE_MIRROR=true -t antigravity-manager:custom -f docker/Dockerfile .
+```
+
+### Build Arguments
+
+<ParamField path="USE_MIRROR" type="string" default="auto">
+  - `auto`: Auto-detect network and use mirrors if Google is unreachable
+  - `true`: Force use China mirrors (Aliyun, npm mirror)
+  - `false`: Use official sources only
+</ParamField>
+
+## Advanced Configuration
+
+### Network Mode: Host
+
+For direct localhost access (Linux only):
+
+```bash
+docker run -d \
+  --name antigravity-manager \
+  --network host \
+  -e API_KEY=sk-test \
+  -e ABV_BIND_LOCAL_ONLY=true \
+  -v ~/.antigravity_tools:/root/.antigravity_tools \
+  lbjlaq/antigravity-manager:latest
+```
+
+<Warning>
+  `--network host` doesn't work on macOS/Windows Docker Desktop.
+</Warning>
+
+### Custom Resource Limits
+
+```bash
+docker run -d \
+  --name antigravity-manager \
+  -p 8045:8045 \
+  --memory=1g \
+  --cpus=2 \
+  -e API_KEY=sk-test \
+  -v ~/.antigravity_tools:/root/.antigravity_tools \
+  lbjlaq/antigravity-manager:latest
+```
+
+## Upgrading from Old Versions
+
+<Steps>
+  <Step title="Backup Data">
+    ```bash
+    cp -r ~/.antigravity_tools ~/.antigravity_tools.backup
+    ```
+  </Step>
+
+  <Step title="Stop Old Container">
+    ```bash
+    docker stop antigravity-manager
+    docker rm antigravity-manager
+    ```
+  </Step>
+
+  <Step title="Pull New Image">
+    ```bash
+    docker pull lbjlaq/antigravity-manager:latest
+    ```
+  </Step>
+
+  <Step title="Start with New Configuration">
+    Add `WEB_PASSWORD` if upgrading from v4.0.1 or earlier:
+    ```bash
+    docker run -d \
+      --name antigravity-manager \
+      -p 8045:8045 \
+      -e API_KEY=sk-existing-key \
+      -e WEB_PASSWORD=new-admin-password \
+      -v ~/.antigravity_tools:/root/.antigravity_tools \
+      lbjlaq/antigravity-manager:latest
+    ```
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Container exits immediately">
+    Check logs for errors:
+    ```bash
+    docker logs antigravity-manager
+    ```
+
+    Common causes:
+    - Invalid environment variables
+    - Port 8045 already in use
+    - Permission issues with volume mount
+  </Accordion>
+
+  <Accordion title="Cannot access Web UI">
+    1. Verify container is running:
+       ```bash
+       docker ps | grep antigravity
+       ```
+
+    2. Check port mapping:
+       ```bash
+       docker port antigravity-manager
+       ```
+
+    3. Test from inside container:
+       ```bash
+       docker exec antigravity-manager curl http://localhost:8045/health
+       ```
+  </Accordion>
+
+  <Accordion title="API authentication fails">
+    Verify credentials in logs:
+    ```bash
+    docker logs antigravity-manager | head -20
+    ```
+
+    Or check config:
+    ```bash
+    docker exec antigravity-manager cat /root/.antigravity_tools/gui_config.json
+    ```
+  </Accordion>
+
+  <Accordion title="High memory usage">
+    Limit container memory:
+    ```bash
+    docker update --memory=512m antigravity-manager
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Docker Compose" icon="layer-group" href="/deployment/docker-compose">
+    Deploy with Docker Compose for easier management
+  </Card>
+  <Card title="Headless Mode" icon="terminal" href="/deployment/headless-mode">
+    Learn about headless-specific features and configurations
+  </Card>
+  <Card title="API Integration" icon="code" href="/api/quick-start">
+    Connect Claude CLI, OpenCode, and other clients
+  </Card>
+  <Card title="Reverse Proxy" icon="shield" href="/deployment/reverse-proxy">
+    Set up Nginx or Caddy for HTTPS and custom domains
+  </Card>
+</CardGroup>

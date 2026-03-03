@@ -1,0 +1,565 @@
+---
+title: Error Handling & Retry
+description: Automatic retry logic, rate limit handling, and self-healing mechanisms
+---
+
+# Error Handling & Retry Logic
+
+Antigravity Manager implements intelligent error handling and automatic retry mechanisms to provide a seamless experience even when upstream APIs encounter issues.
+
+## Error Classification
+
+Location: `src-tauri/src/error.rs` and `src-tauri/src/proxy/mappers/error_classifier.rs`
+
+### Error Types
+
+```rust
+pub enum AppError {
+    Database(rusqlite::Error),
+    Network(String, Option<u16>),  // message, status code
+    Io(std::io::Error),
+    OAuth(String),
+    Config(String),
+    Account(String),
+    Unknown(String),
+}
+```
+
+### HTTP Status Classification
+
+| Status Code | Category | Retry Strategy | Example |
+|------------|----------|----------------|----------|
+| **401** | Auth expired | Auto-refresh token → retry | Invalid grant |
+| **403** | Forbidden | Mark account → switch | Validation blocked |
+| **404** | Not found | Short retry → rotate | Model not available |
+| **429** | Rate limit | Exponential backoff → rotate | Too many requests |
+| **500-503** | Server error | Retry with backoff | Overloaded |
+| **4xx** | Client error | No retry | Invalid request |
+
+### Error Classifier
+
+```rust
+pub fn classify_stream_error(e: &impl Display) -> (&'static str, String, &'static str) {
+    let error_str = e.to_string();
+    
+    // Rate limit detection
+    if error_str.contains("429") || error_str.contains("quota") {
+        return (
+            "rate_limit_error",
+            "请求过于频繁，系统将自动切换账号重试".to_string(),
+            "error.rate_limit"
+        );
+    }
+    
+    // Network issues
+    if error_str.contains("timeout") || error_str.contains("connection") {
+        return (
+            "network_error",
+            "网络连接不稳定，请检查您的网络或代理设置".to_string(),
+            "error.network"
+        );
+    }
+    
+    // Auth errors
+    if error_str.contains("401") || error_str.contains("unauthorized") {
+        return (
+            "authentication_error",
+            "账号授权已过期，系统将自动刷新".to_string(),
+            "error.auth"
+        );
+    }
+    
+    // Fallback
+    ("api_error", error_str, "error.unknown")
+}
+```
+
+## Automatic Retry Logic
+
+Location: Throughout proxy handlers
+
+### 429 Rate Limit Handling
+
+When a `429 Too Many Requests` is received:
+
+1. **Immediate account rotation:**
+   ```rust
+   if status == 429 {
+       tracing::warn!("[429] Rate limited on account {}, rotating...", account_id);
+       
+       // Get next available account
+       let next_token = token_manager.get_next_available_token()?;
+       
+       // Retry request immediately with new account
+       return retry_with_account(request, next_token).await;
+   }
+   ```
+
+2. **Smart cooldown:**
+   ```rust
+   // Soft lock the rate-limited account for 5 seconds
+   token_manager.set_account_cooldown(account_id, Duration::from_secs(5));
+   ```
+
+3. **Quota refresh:**
+   ```rust
+   // Trigger background quota refresh to update status
+   tokio::spawn(async move {
+       let _ = account::fetch_account_quota(account_id).await;
+   });
+   ```
+
+### 401 Token Expiry
+
+When a `401 Unauthorized` is received:
+
+1. **Silent token refresh:**
+   ```rust
+   if status == 401 {
+       tracing::info!("[401] Token expired for {}, refreshing...", account_id);
+       
+       // Attempt to refresh access token
+       match oauth::refresh_access_token(account_id).await {
+           Ok(new_token) => {
+               // Update account with new token
+               account::update_account_token(account_id, &new_token)?;
+               
+               // Retry original request with refreshed token
+               return retry_request(request, account_id).await;
+           }
+           Err(e) => {
+               // Mark account as disabled if refresh fails
+               account::mark_account_disabled(
+                   account_id,
+                   &format!("Token refresh failed: {}", e)
+               )?;
+               
+               // Rotate to next account
+               let next_token = token_manager.get_next_available_token()?;
+               return retry_with_account(request, next_token).await;
+           }
+       }
+   }
+   ```
+
+2. **Automatic re-enablement:**
+   When token refresh succeeds, account is automatically re-enabled.
+
+### 403 Validation Block
+
+When a `403 Forbidden` is received:
+
+1. **Account marking:**
+   ```rust
+   if status == 403 {
+       let validation_url = extract_validation_url(&response_body);
+       
+       account::mark_account_forbidden(
+           account_id,
+           validation_url,
+           Utc::now().timestamp()
+       )?;
+       
+       tracing::warn!(
+           "[403] Account {} blocked. Validation URL: {:?}",
+           account_id,
+           validation_url
+       );
+   }
+   ```
+
+2. **Immediate rotation:**
+   ```rust
+   // Skip this account and try next
+   let next_token = token_manager.get_next_available_token()?;
+   return retry_with_account(request, next_token).await;
+   ```
+
+3. **UI notification:**
+   Account details page shows validation link for user action.
+
+### 404 Model Not Found
+
+Specific to Google Cloud Code API phased rollouts:
+
+```rust
+if status == 404 && request_path.contains("generateCode") {
+    tracing::warn!(
+        "[404] Model not available on account {}, trying next account...",
+        account_id
+    );
+    
+    // Short cooldown (5 seconds vs 8 for other errors)
+    token_manager.set_account_cooldown(account_id, Duration::from_secs(5));
+    
+    // Quick retry with 300ms delay
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    
+    let next_token = token_manager.get_next_available_token()?;
+    return retry_with_account(request, next_token).await;
+}
+```
+
+### 500/503 Server Errors
+
+Exponential backoff for temporary server issues:
+
+```rust
+if status >= 500 && status < 600 {
+    let mut retry_count = 0;
+    let max_retries = 3;
+    
+    while retry_count < max_retries {
+        let delay = Duration::from_millis(100 * 2_u64.pow(retry_count));
+        tokio::time::sleep(delay).await;
+        
+        match retry_request(request, account_id).await {
+            Ok(response) => return Ok(response),
+            Err(e) if retry_count < max_retries - 1 => {
+                retry_count += 1;
+                tracing::warn!("[5xx] Retry {} failed: {}", retry_count, e);
+                continue;
+            }
+            Err(e) => return Err(e),
+        }
+    }
+}
+```
+
+**Backoff schedule:**
+- Retry 1: 100ms
+- Retry 2: 200ms
+- Retry 3: 400ms
+
+## Account Rotation Strategy
+
+Location: `src-tauri/src/proxy/token_manager.rs`
+
+### Smart Account Selection
+
+```rust
+pub fn get_next_available_token(&self) -> Result<ProxyToken, String> {
+    let accounts = self.accounts.read().unwrap();
+    
+    // Filter available accounts
+    let available: Vec<_> = accounts.iter()
+        .filter(|acc| {
+            !acc.disabled &&
+            !acc.proxy_disabled &&
+            !acc.validation_blocked &&
+            !self.is_in_cooldown(&acc.id)
+        })
+        .collect();
+    
+    if available.is_empty() {
+        return Err("No available accounts".to_string());
+    }
+    
+    // Tiered routing: prioritize high-reset accounts
+    let best = available.iter()
+        .max_by_key(|acc| {
+            let quota_score = calculate_quota_score(acc);
+            let reset_score = calculate_reset_score(acc);
+            quota_score * 100 + reset_score
+        })
+        .unwrap();
+    
+    Ok(best.to_proxy_token())
+}
+```
+
+### Quota Score Calculation
+
+```rust
+fn calculate_quota_score(account: &Account) -> u32 {
+    let quota = match &account.quota {
+        Some(q) => q,
+        None => return 0,
+    };
+    
+    // Average remaining percentage across all models
+    let total: i32 = quota.models.iter()
+        .map(|m| m.percentage)
+        .sum();
+    
+    (total / quota.models.len() as i32) as u32
+}
+
+fn calculate_reset_score(account: &Account) -> u32 {
+    // Prefer accounts that reset more frequently
+    // Ultra: reset every hour (score: 100)
+    // Pro: reset every 8 hours (score: 50)
+    // Free: reset every 24 hours (score: 10)
+    
+    match account.subscription_tier.as_deref() {
+        Some("ultra") => 100,
+        Some("pro") => 50,
+        _ => 10,
+    }
+}
+```
+
+### Cooldown Management
+
+```rust
+struct AccountCooldown {
+    account_id: String,
+    until: Instant,
+}
+
+impl TokenManager {
+    pub fn set_account_cooldown(&self, account_id: &str, duration: Duration) {
+        let mut cooldowns = self.cooldowns.write().unwrap();
+        cooldowns.insert(
+            account_id.to_string(),
+            Instant::now() + duration
+        );
+    }
+    
+    pub fn is_in_cooldown(&self, account_id: &str) -> bool {
+        let cooldowns = self.cooldowns.read().unwrap();
+        
+        if let Some(until) = cooldowns.get(account_id) {
+            Instant::now() < *until
+        } else {
+            false
+        }
+    }
+}
+```
+
+## Self-Healing Features
+
+Location: Changelog references in README.md
+
+### Automatic Quota Refresh
+
+Background task refreshes quota every N minutes:
+
+```rust
+pub async fn auto_refresh_quotas() {
+    let mut interval = tokio::time::interval(Duration::from_secs(300)); // 5 min
+    
+    loop {
+        interval.tick().await;
+        
+        let accounts = account::list_accounts().unwrap_or_default();
+        for acc in accounts {
+            if acc.disabled || acc.proxy_disabled {
+                continue;  // Skip disabled accounts
+            }
+            
+            match account::fetch_account_quota(&acc.id).await {
+                Ok(quota) => {
+                    // Update quota in database
+                    let _ = account::update_account_quota(&acc.id, quota);
+                }
+                Err(e) if e.contains("403") => {
+                    // Mark as forbidden if quota check fails
+                    let _ = account::mark_account_forbidden(
+                        &acc.id,
+                        None,
+                        Utc::now().timestamp()
+                    );
+                }
+                Err(_) => {
+                    // Ignore transient errors
+                }
+            }
+        }
+    }
+}
+```
+
+### Project ID Recovery
+
+When project ID is missing or invalid:
+
+```rust
+if project_id.is_empty() || project_id == "projects/" {
+    tracing::warn!("[Project] Invalid project ID detected, fetching...");
+    
+    match oauth::fetch_project_id(&account.refresh_token).await {
+        Ok(pid) => {
+            account::update_project_id(&account.id, &pid)?;
+            project_id = pid;
+        }
+        Err(_) => {
+            // Fallback to verified stable project
+            project_id = "bamboo-precept-lgxtn".to_string();
+            tracing::info!("[Project] Using fallback project ID");
+        }
+    }
+}
+```
+
+### Thinking Signature Recovery
+
+When thinking blocks fail due to missing signatures:
+
+```rust
+pub fn strip_all_thinking_blocks(contents: Vec<Value>) -> Vec<Value> {
+    contents.into_iter().map(|mut msg| {
+        if let Some(parts) = msg["parts"].as_array_mut() {
+            parts.retain(|part| {
+                // Remove all parts with thought=true or thoughtSignature
+                !part.get("thought").and_then(|t| t.as_bool()).unwrap_or(false) &&
+                !part.get("thoughtSignature").is_some()
+            });
+        }
+        msg
+    }).collect()
+}
+```
+
+This is automatically applied when:
+- Tool history exists (from previous turns)
+- Retry attempt is detected
+- Signature validation fails
+
+### Account Index Auto-Repair
+
+If account index becomes corrupted:
+
+```rust
+pub fn rebuild_account_index() -> Result<(), String> {
+    tracing::warn!("[Index] Rebuilding account index...");
+    
+    let data_dir = get_data_dir();
+    let accounts_dir = data_dir.join("accounts");
+    
+    let mut index = Vec::new();
+    
+    for entry in fs::read_dir(&accounts_dir).map_err(|e| e.to_string())? {
+        let entry = entry.map_err(|e| e.to_string())?;
+        let path = entry.path();
+        
+        if path.extension().and_then(|s| s.to_str()) == Some("json") {
+            if let Ok(account) = load_account_from_file(&path) {
+                index.push(account.id);
+            }
+        }
+    }
+    
+    save_account_index(&index)?;
+    tracing::info!("[Index] Rebuilt with {} accounts", index.len());
+    
+    Ok(())
+}
+```
+
+Triggered automatically when:
+- Index file is missing
+- Index contains invalid entries
+- Account count mismatch detected
+
+## Quota Protection
+
+Prevents requests when quota is exhausted:
+
+```rust
+pub fn has_available_quota(account: &Account, model: &str) -> bool {
+    let quota = match &account.quota {
+        Some(q) => q,
+        None => return true,  // Allow if unknown
+    };
+    
+    // Normalize model name for comparison
+    let normalized = normalize_model_name(model);
+    
+    // Find matching quota entry
+    for model_quota in &quota.models {
+        if model_quota.name == normalized {
+            return model_quota.percentage > 0;
+        }
+    }
+    
+    // Allow if no specific quota found
+    true
+}
+```
+
+Integrated into account selection:
+
+```rust
+let available: Vec<_> = accounts.iter()
+    .filter(|acc| has_available_quota(acc, &requested_model))
+    .collect();
+```
+
+## Error Recovery Modes
+
+### Permissive Mode
+
+For first-time thinking requests (no history):
+
+```rust
+if !has_thinking_history && is_thinking_enabled {
+    tracing::info!(
+        "[Thinking-Mode] First thinking request detected. Using permissive mode."
+    );
+    // Allow upstream to validate, don't enforce signature checks
+}
+```
+
+### Strict Mode
+
+For tool calls with thinking:
+
+```rust
+if needs_signature_check && !has_valid_signature() {
+    tracing::warn!(
+        "[Thinking-Mode] No valid signature for function calls. Disabling thinking."
+    );
+    is_thinking_enabled = false;
+}
+```
+
+### Adaptive Mode
+
+Dynamically adjusts based on context:
+
+```rust
+if adaptive_thinking_enabled {
+    let budget = match request_complexity {
+        Complexity::Low => 4096,
+        Complexity::Medium => 8192,
+        Complexity::High => 24576,
+    };
+    
+    gen_config["thinkingConfig"]["thinkingBudget"] = json!(budget);
+}
+```
+
+## Monitoring & Logging
+
+All errors are logged with context:
+
+```rust
+tracing::error!(
+    "[Error] Request failed: status={}, account={}, model={}, error={}",
+    status,
+    account_id,
+    model,
+    error_message
+);
+```
+
+Accessible via:
+- UI logs page (`/api/logs`)
+- System logs (stored in data directory)
+- Debug console (if enabled)
+
+## Best Practices
+
+1. **Add multiple accounts** for seamless rotation
+2. **Enable auto-refresh** to keep quota status current
+3. **Monitor logs** for recurring errors
+4. **Respond to 403s** by following validation links
+5. **Keep tokens fresh** by using accounts regularly
+
+## See Also
+
+- [Request Mapping](/api/request-mapping) - Protocol conversion
+- [Response Mapping](/api/response-mapping) - Response transformation
+- [Streaming](/api/streaming) - Real-time error handling

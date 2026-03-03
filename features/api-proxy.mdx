@@ -1,0 +1,347 @@
+---
+title: API Proxy Server
+description: Local API proxy with multi-protocol support and automatic token management
+---
+
+## Overview
+
+The API Proxy is a high-performance local server that converts Google AI accounts into standard API endpoints. It supports multiple protocols including OpenAI, Anthropic (Claude), and native Gemini formats.
+
+## Supported Protocols
+
+### OpenAI Compatible
+
+Provides `/v1/chat/completions` endpoint compatible with 99% of existing AI applications:
+
+```python
+import openai
+
+client = openai.OpenAI(
+    api_key="sk-antigravity",
+    base_url="http://127.0.0.1:8045/v1"
+)
+
+response = client.chat.completions.create(
+    model="gemini-3-flash",
+    messages=[{"role": "user", "content": "Hello"}]
+)
+
+print(response.choices[0].message.content)
+```
+
+### Anthropic (Claude) Protocol
+
+Native `/v1/messages` interface with full Claude Code CLI support:
+
+```python
+from anthropic import Anthropic
+
+client = Anthropic(
+    base_url="http://127.0.0.1:8045",
+    api_key="sk-antigravity"
+)
+
+response = client.messages.create(
+    model="gemini-3-flash",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello"}]
+)
+
+print(response.content[0].text)
+```
+
+### Gemini Native Protocol
+
+Direct Google SDK compatibility:
+
+```python
+import google.generativeai as genai
+
+genai.configure(
+    api_key="sk-antigravity",
+    transport='rest',
+    client_options={'api_endpoint': 'http://127.0.0.1:8045'}
+)
+
+model = genai.GenerativeModel('gemini-3-flash')
+response = model.generate_content("Hello")
+print(response.text)
+```
+
+## Server Configuration
+
+### Basic Settings
+
+```typescript
+// From src/pages/ApiProxy.tsx:1144
+interface ProxyConfig {
+  port: number;                    // Default: 8045
+  request_timeout: number;         // Default: 120s
+  auto_start: boolean;             // Start on app launch
+  allow_lan_access: boolean;       // Enable network access
+}
+```
+
+<Tabs>
+  <Tab title="Port Configuration">
+    ```rust
+    // From src-tauri/src/proxy/server.rs:695
+    let addr = format!("{}:{}", host, port);
+    let listener = tokio::net::TcpListener::bind(&addr).await?;
+    ```
+    
+    <Note>
+    Port must be between 8000-65535. Requires restart if proxy is running.
+    </Note>
+  </Tab>
+  
+  <Tab title="Timeout Settings">
+    Configure request timeout (30-7200 seconds):
+    
+    ```typescript
+    updateProxyConfig({ request_timeout: 300 }); // 5 minutes
+    ```
+    
+    <Warning>
+    Very long timeouts may cause connection issues with some clients.
+    </Warning>
+  </Tab>
+  
+  <Tab title="Auto-Start">
+    Enable automatic proxy startup on application launch:
+    
+    ```typescript
+    updateProxyConfig({ auto_start: true });
+    ```
+  </Tab>
+</Tabs>
+
+### Authentication
+
+The proxy uses API key authentication for security:
+
+```rust
+// From src-tauri/src/proxy/middleware.rs
+pub async fn auth_middleware(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    request: Request,
+    next: Next,
+) -> Response {
+    // Extract API key from Authorization header
+    let api_key = extract_api_key(&headers);
+    // Validate against configured key
+}
+```
+
+#### Generating API Keys
+
+<Steps>
+  <Step title="Navigate to API Proxy Settings">
+    Open the **API Proxy** page in the application.
+  </Step>
+  
+  <Step title="Generate New Key">
+    Click **Regenerate API Key** to create a new authentication key.
+  </Step>
+  
+  <Step title="Copy and Use">
+    Copy the generated key and use it in your API clients.
+  </Step>
+</Steps>
+
+<Warning>
+Regenerating the API key will invalidate all existing client connections.
+</Warning>
+
+## Token Management
+
+The proxy automatically manages account tokens and handles rotation:
+
+```rust
+// From src-tauri/src/proxy/token_manager.rs:969
+pub async fn get_token(
+    &self,
+    quota_group: &str,
+    force_rotate: bool,
+    session_id: Option<&str>,
+    target_model: &str,
+) -> Result<(String, String, String, String, u64), String>
+```
+
+### Smart Token Selection
+
+The token manager uses sophisticated algorithms to select the best account:
+
+1. **Capability Filtering**: Only accounts with the requested model
+2. **Subscription Tier Priority**: ULTRA → PRO → FREE
+3. **Quota-Based Sorting**: Higher remaining quota preferred
+4. **Health Score**: Accounts with better success rates
+5. **Reset Time**: Recently refreshed quotas prioritized
+
+```rust
+// From src-tauri/src/proxy/token_manager.rs:1055
+tokens_snapshot.sort_by(|a, b| {
+    // Priority 0: Subscription tier
+    let tier_cmp = tier_priority(&a.subscription_tier)
+        .cmp(&tier_priority(&b.subscription_tier));
+    if tier_cmp != std::cmp::Ordering::Equal {
+        return tier_cmp;
+    }
+    
+    // Priority 1: Model quota
+    let quota_cmp = quota_b.cmp(&quota_a);
+    if quota_cmp != std::cmp::Ordering::Equal {
+        return quota_cmp;
+    }
+    
+    // Priority 2: Health score
+    // Priority 3: Reset time
+});
+```
+
+### Automatic Token Refresh
+
+Tokens are automatically refreshed before expiration:
+
+```rust
+// From src-tauri/src/proxy/token_manager.rs:1200
+let now = chrono::Utc::now().timestamp();
+if now >= token.timestamp - 300 { // 5 minutes before expiry
+    match oauth::refresh_access_token(&token.refresh_token, Some(&token.account_id)).await {
+        Ok(token_response) => {
+            token.access_token = token_response.access_token.clone();
+            token.expires_in = token_response.expires_in;
+            token.timestamp = now + token_response.expires_in;
+        }
+    }
+}
+```
+
+## Request Routing
+
+The proxy routes requests through multiple handlers:
+
+```rust
+// From src-tauri/src/proxy/server.rs:372
+let proxy_routes = Router::new()
+    .route("/health", get(health_check_handler))
+    // OpenAI Protocol
+    .route("/v1/models", get(handlers::openai::handle_list_models))
+    .route("/v1/chat/completions", post(handlers::openai::handle_chat_completions))
+    .route("/v1/completions", post(handlers::openai::handle_completions))
+    .route("/v1/images/generations", post(handlers::openai::handle_images_generations))
+    // Claude Protocol
+    .route("/v1/messages", post(handlers::claude::handle_messages))
+    .route("/v1/messages/count_tokens", post(handlers::claude::handle_count_tokens))
+    // Gemini Protocol
+    .route("/v1beta/models", get(handlers::gemini::handle_list_models))
+    .route("/v1beta/models/:model", post(handlers::gemini::handle_generate));
+```
+
+### Error Handling
+
+Automatic retry on rate limits and token expiration:
+
+<Tabs>
+  <Tab title="429 Rate Limit">
+    ```rust
+    // Automatically rotate to next available account
+    if status_code == 429 {
+        self.rate_limit_tracker.record(
+            &account_id, 
+            Some(&normalized_target),
+            cooldown_seconds
+        );
+        // Retry with different account
+    }
+    ```
+  </Tab>
+  
+  <Tab title="401 Expired Token">
+    ```rust
+    // Trigger automatic token refresh
+    if status_code == 401 {
+        let refreshed = refresh_access_token(&token.refresh_token).await?;
+        // Retry request with new token
+    }
+    ```
+  </Tab>
+</Tabs>
+
+## Integration Examples
+
+### Claude Code CLI
+
+```bash
+export ANTHROPIC_API_KEY="sk-antigravity"
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8045"
+claude
+```
+
+### OpenCode
+
+Use the built-in sync feature:
+
+<Steps>
+  <Step title="Open API Proxy Page">
+    Navigate to **API Proxy** → **External Providers**
+  </Step>
+  
+  <Step title="Click OpenCode Sync">
+    Click the **Sync** button on the OpenCode card
+  </Step>
+  
+  <Step title="Verify Configuration">
+    Configuration is automatically written to `~/.config/opencode/opencode.json`
+  </Step>
+</Steps>
+
+```bash
+# Verify connection
+opencode run "test" --model antigravity-manager/claude-sonnet-4-5-thinking
+```
+
+### Cherry Studio
+
+1. Open **Settings** → **Models**
+2. Add new provider:
+   - Base URL: `http://127.0.0.1:8045/v1`
+   - API Key: `sk-antigravity`
+3. Select available models from the list
+
+## Monitoring
+
+### Proxy Status
+
+Check current proxy status:
+
+```typescript
+interface ProxyStatus {
+  running: boolean;
+  port: number;
+  base_url: string;
+  active_accounts: number;
+}
+```
+
+### Session Bindings
+
+Clear sticky session bindings:
+
+```rust
+// From src-tauri/src/commands/mod.rs
+pub async fn clear_proxy_session_bindings() -> Result<(), String> {
+    invoke('clear_proxy_session_bindings')
+}
+```
+
+<Note>
+Session bindings are automatically cleared when switching accounts.
+</Note>
+
+## Advanced Configuration
+
+- [Model Routing](/features/model-routing) - Configure custom model mappings
+- [Quota Monitoring](/features/quota-monitoring) - Track usage and limits
+- [Image Generation](/features/image-generation) - Imagen 3 configuration

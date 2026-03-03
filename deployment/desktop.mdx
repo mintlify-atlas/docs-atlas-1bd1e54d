@@ -1,0 +1,315 @@
+---
+title: Desktop Application Deployment
+description: Install Antigravity Manager as a desktop application on macOS, Windows, and Linux
+---
+
+## Overview
+
+Antigravity Manager provides native desktop applications for macOS, Windows, and Linux with full GUI support. Choose from automated installation scripts or manual downloads.
+
+## System Requirements
+
+<Note>
+  **Minimum Requirements:**
+  - **Memory**: 256MB RAM (1GB recommended)
+  - **Storage**: 200MB free disk space
+  - **Network**: Internet connection for OAuth and API calls
+</Note>
+
+### Platform-Specific
+
+- **macOS**: macOS 10.15+ (supports both Apple Silicon and Intel)
+- **Windows**: Windows 10/11 (64-bit)
+- **Linux**: 
+  - Ubuntu 20.04+ / Debian 11+
+  - Arch Linux
+  - AppImage support for other distributions
+
+## Quick Install (Recommended)
+
+### Linux / macOS
+
+Automatically detects your OS, architecture, and package manager:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/v4.1.27/install.sh | bash
+```
+
+<Accordion title="Advanced Installation Options">
+  **Install Specific Version:**
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/v4.1.27/install.sh | bash -s -- --version 4.1.27
+  ```
+
+  **Dry Run (Preview Only):**
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/v4.1.27/install.sh | bash -s -- --dry-run
+  ```
+</Accordion>
+
+### Windows
+
+Run in PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/install.ps1 | iex
+```
+
+## Package Manager Installation
+
+<CodeGroup>
+
+```bash Homebrew (macOS)
+# Add the tap
+brew tap lbjlaq/antigravity-manager https://github.com/lbjlaq/Antigravity-Manager
+
+# Install the application
+brew install --cask antigravity-tools
+```
+
+```bash Homebrew (Linux)
+# Install Homebrew for Linux (if not installed)
+/bin/bash -c "$(curl -fsSL https://sh.brew.sh/)"
+
+# Add the tap and install
+brew tap lbjlaq/antigravity-manager https://github.com/lbjlaq/Antigravity-Manager
+brew install --cask antigravity-tools
+```
+
+```bash Arch Linux
+# One-click install script
+curl -sSL https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/deploy/arch/install.sh | bash
+```
+
+</CodeGroup>
+
+## Manual Installation
+
+### Step 1: Download
+
+Download the appropriate package from [GitHub Releases](https://github.com/lbjlaq/Antigravity-Manager/releases):
+
+<CardGroup cols={3}>
+  <Card title="macOS" icon="apple">
+    `.dmg` - Universal binary (Apple Silicon & Intel)
+  </Card>
+  <Card title="Windows" icon="windows">
+    `.msi` or `.exe` installer, or portable `.zip`
+  </Card>
+  <Card title="Linux" icon="linux">
+    `.deb`, `.rpm`, or `.AppImage`
+  </Card>
+</CardGroup>
+
+### Step 2: Install
+
+<Tabs>
+  <Tab title="macOS">
+    1. Open the downloaded `.dmg` file
+    2. Drag "Antigravity Tools" to Applications folder
+    3. If you see "App is damaged" error, run:
+       ```bash
+       sudo xattr -rd com.apple.quarantine "/Applications/Antigravity Tools.app"
+       ```
+  </Tab>
+  <Tab title="Windows">
+    1. Run the `.msi` or `.exe` installer
+    2. Follow the installation wizard
+    3. Or extract the `.zip` for portable use
+  </Tab>
+  <Tab title="Linux (DEB/RPM)">
+    **Debian/Ubuntu:**
+    ```bash
+    sudo dpkg -i antigravity-tools_*.deb
+    sudo apt-get install -f  # Fix dependencies if needed
+    ```
+
+    **Fedora/RHEL:**
+    ```bash
+    sudo rpm -i antigravity-tools-*.rpm
+    ```
+  </Tab>
+  <Tab title="Linux (AppImage)">
+    ```bash
+    chmod +x Antigravity-Tools-*.AppImage
+    ./Antigravity-Tools-*.AppImage
+    ```
+
+    **Add to PATH:**
+    ```bash
+    sudo mv Antigravity-Tools-*.AppImage /usr/local/bin/antigravity-tools
+    ```
+  </Tab>
+</Tabs>
+
+## macOS Security
+
+<Warning>
+  macOS Gatekeeper may block applications not downloaded from the App Store.
+</Warning>
+
+### Fix "App is damaged" Error
+
+<CodeGroup>
+
+```bash Terminal Fix (Recommended)
+sudo xattr -rd com.apple.quarantine "/Applications/Antigravity Tools.app"
+```
+
+```bash Homebrew Install (No Quarantine)
+brew install --cask --no-quarantine antigravity-tools
+```
+
+</CodeGroup>
+
+## First Launch
+
+After installation:
+
+1. **Launch the Application**
+   - macOS: Open from Applications folder
+   - Windows: Use Start Menu or Desktop shortcut
+   - Linux: Search in application launcher or run `antigravity-tools`
+
+2. **Configure Settings**
+   - Navigate to Settings → General
+   - Configure auto-start behavior
+   - Set up system tray preferences
+
+3. **Add Accounts**
+   - Go to Accounts → Add Account
+   - Follow the OAuth authorization flow
+   - See [Account Management](/accounts/oauth) for details
+
+## Auto-Start Configuration
+
+Configure Antigravity Manager to start automatically on system boot:
+
+<Tabs>
+  <Tab title="macOS">
+    The application uses LaunchAgent for auto-start:
+    - Enable in **Settings → General → Auto-start**
+    - Starts minimized to system tray by default
+  </Tab>
+  <Tab title="Windows">
+    Uses Windows Task Scheduler:
+    - Enable in **Settings → General → Auto-start**
+    - Runs with `--minimized` flag
+  </Tab>
+  <Tab title="Linux">
+    Creates a systemd user service or XDG autostart entry:
+    - Enable in **Settings → General → Auto-start**
+    - Check status: `systemctl --user status antigravity-tools`
+  </Tab>
+</Tabs>
+
+## Updates
+
+Antigravity Manager supports automatic updates on all platforms:
+
+### Automatic Updates
+
+1. Navigate to **Settings → About**
+2. Toggle **Enable automatic update checks**
+3. Set check frequency (daily, weekly, or manual)
+
+### Manual Update Check
+
+- Click **Check for Updates** in Settings → About
+- Download progress shown in notification
+- Restart prompted when update is ready
+
+### Homebrew Users
+
+```bash
+brew upgrade antigravity-tools
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="macOS: 'App is damaged' or 'Cannot be opened'">
+    This is a Gatekeeper security feature. Fix with:
+    ```bash
+    sudo xattr -rd com.apple.quarantine "/Applications/Antigravity Tools.app"
+    ```
+
+    Or reinstall with Homebrew using `--no-quarantine`.
+  </Accordion>
+
+  <Accordion title="Linux: GTK/Wayland crashes">
+    If the app crashes on Wayland:
+    ```bash
+    # Force X11 backend
+    export ANTIGRAVITY_FORCE_X11=1
+    antigravity-tools
+    ```
+
+    Or disable tray icon:
+    ```bash
+    export ANTIGRAVITY_DISABLE_TRAY=1
+    antigravity-tools
+    ```
+  </Accordion>
+
+  <Accordion title="Windows: Black window flashing">
+    Fixed in v4.1.26+. Update to the latest version:
+    ```powershell
+    irm https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/install.ps1 | iex
+    ```
+  </Accordion>
+
+  <Accordion title="Too many open files (macOS)">
+    The application automatically increases file descriptor limits. If issues persist:
+    ```bash
+    ulimit -n 4096
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Environment Variables
+
+<ParamField path="ANTIGRAVITY_DISABLE_TRAY" type="boolean" default="false">
+  Disable system tray icon (useful for headless or Wayland sessions)
+</ParamField>
+
+<ParamField path="ANTIGRAVITY_FORCE_TRAY" type="boolean" default="false">
+  Force enable tray even on Wayland (may cause crashes)
+</ParamField>
+
+<ParamField path="ANTIGRAVITY_FORCE_WAYLAND" type="boolean" default="false">
+  Use Wayland backend on Linux (default: X11 for stability)
+</ParamField>
+
+<ParamField path="ANTIGRAVITY_FORCE_X11" type="boolean" default="false">
+  Force X11 backend on Linux
+</ParamField>
+
+## Data Location
+
+Application data is stored in:
+
+- **macOS**: `~/Library/Application Support/antigravity_tools/`
+- **Windows**: `%APPDATA%\antigravity_tools\`
+- **Linux**: `~/.antigravity_tools/`
+
+<Tip>
+  Back up this directory to preserve accounts, settings, and logs.
+</Tip>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Add Accounts" icon="user-plus" href="/accounts/oauth">
+    Set up OAuth authentication and add accounts
+  </Card>
+  <Card title="Configure API Proxy" icon="server" href="/api/proxy-setup">
+    Enable the API proxy service for Claude CLI and other clients
+  </Card>
+  <Card title="Model Routing" icon="route" href="/features/model-routing">
+    Configure intelligent model routing and mappings
+  </Card>
+  <Card title="Docker Deployment" icon="docker" href="/deployment/docker">
+    Or deploy as a Docker container for servers
+  </Card>
+</CardGroup>

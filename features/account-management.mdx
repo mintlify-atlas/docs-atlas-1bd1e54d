@@ -1,0 +1,238 @@
+---
+title: Account Management
+description: Multi-account OAuth management system for Google AI accounts
+---
+
+## Overview
+
+Antigravity Manager provides a comprehensive account management system that allows you to add, manage, and switch between multiple Google AI accounts. Each account can be configured with OAuth 2.0 authentication and monitored for quota usage.
+
+## Adding Accounts
+
+### OAuth 2.0 Flow
+
+The recommended way to add accounts is through the OAuth 2.0 flow:
+
+<Steps>
+  <Step title="Open Add Account Dialog">
+    Navigate to the **Accounts** page and click the **Add Account** button.
+  </Step>
+  
+  <Step title="Choose Authentication Method">
+    Select **OAuth** to use the browser-based authentication flow.
+  </Step>
+  
+  <Step title="Complete Authorization">
+    - Click the authorization link to open it in your browser
+    - Sign in with your Google account
+    - Grant the required permissions
+    - The application will automatically detect the callback
+  </Step>
+  
+  <Step title="Manual Completion (if needed)">
+    If automatic detection fails, click **"I've authorized, continue"** to manually complete the process.
+  </Step>
+</Steps>
+
+<Note>
+The authorization link contains a one-time callback port. Always use the latest link generated in the dialog.
+</Note>
+
+### Manual Token Import
+
+You can also add accounts using refresh tokens:
+
+```typescript
+// From src/pages/Accounts.tsx
+const handleAddAccount = async (email: string, refreshToken: string) => {
+  await addAccount(email, refreshToken);
+};
+```
+
+<Tip>
+Refresh tokens must start with `1//` to be considered valid.
+</Tip>
+
+## Account Properties
+
+### Core Fields
+
+Each account includes the following properties:
+
+- **ID**: Unique identifier for the account
+- **Email**: Associated Google account email
+- **Name**: Optional custom label (up to 15 characters)
+- **Token**: OAuth access and refresh tokens
+- **Quota**: Current usage quotas for available models
+- **Subscription Tier**: FREE, PRO, or ULTRA
+- **Device Profile**: Optional device fingerprint binding
+
+### Status Flags
+
+```typescript
+// From src/types/account.ts
+interface Account {
+  disabled: boolean;                    // Global account status
+  disabled_reason?: string;
+  proxy_disabled: boolean;              // API proxy status
+  proxy_disabled_reason?: string;
+  validation_blocked: boolean;          // Temporary validation block
+  validation_blocked_until?: number;
+}
+```
+
+## Account Operations
+
+### Switching Accounts
+
+Switch the currently active account:
+
+<Tabs>
+  <Tab title="UI">
+    1. Navigate to **Accounts** or **Dashboard**
+    2. Click the **Switch** button on the desired account card
+    3. Wait for the switch confirmation toast
+  </Tab>
+  
+  <Tab title="Code">
+    ```typescript
+    // From src/pages/Dashboard.tsx
+    const handleSwitch = async (accountId: string) => {
+      await switchAccount(accountId);
+      showToast(t('dashboard.toast.switch_success'), 'success');
+    };
+    ```
+  </Tab>
+</Tabs>
+
+### Refreshing Quotas
+
+Update quota information for accounts:
+
+```rust
+// From src-tauri/src/commands/mod.rs:188
+pub async fn fetch_account_quota(
+    app: tauri::AppHandle,
+    proxy_state: tauri::State<'_, ProxyServiceState>,
+    account_id: String,
+) -> AppResult<QuotaData> {
+    let mut account = modules::load_account(&account_id)?;
+    let quota = modules::account::fetch_quota_with_retry(&mut account).await?;
+    modules::update_account_quota(&account_id, quota.clone())?;
+    Ok(quota)
+}
+```
+
+<Note>
+Quota refresh automatically syncs with the running proxy service if enabled.
+</Note>
+
+### Batch Operations
+
+Perform operations on multiple accounts:
+
+- **Batch Delete**: Remove multiple accounts at once
+- **Batch Enable/Disable Proxy**: Toggle proxy status for selected accounts
+- **Batch Refresh**: Update quotas for all selected accounts
+- **Batch Export**: Export account data including refresh tokens
+
+## Account Filtering
+
+Filter accounts by subscription tier:
+
+```typescript
+// From src/pages/Accounts.tsx:261
+const filteredAccounts = useMemo(() => {
+  let result = searchedAccounts;
+  
+  if (filter === 'pro') {
+    result = result.filter(a => 
+      a.quota?.subscription_tier?.toLowerCase().includes('pro')
+    );
+  } else if (filter === 'ultra') {
+    result = result.filter(a => 
+      a.quota?.subscription_tier?.toLowerCase().includes('ultra')
+    );
+  } else if (filter === 'free') {
+    result = result.filter(a => {
+      const tier = a.quota?.subscription_tier?.toLowerCase();
+      return tier && !tier.includes('pro') && !tier.includes('ultra');
+    });
+  }
+  
+  return result;
+}, [searchedAccounts, filter]);
+```
+
+## Import & Export
+
+### JSON Export
+
+Export accounts with refresh tokens for backup or migration:
+
+```typescript
+// From src/pages/Accounts.tsx:531
+const exportAccountsToJson = async (accountsToExport: Account[]) => {
+  const accountIds = accountsToExport.map(acc => acc.id);
+  const response = await exportAccounts(accountIds);
+  const content = JSON.stringify(response.accounts, null, 2);
+  // Save to file...
+};
+```
+
+### JSON Import
+
+Import accounts from exported JSON files:
+
+<Warning>
+Imported accounts must have valid refresh tokens starting with `1//`
+</Warning>
+
+```typescript
+// Expected format
+[
+  {
+    "email": "user@gmail.com",
+    "refresh_token": "1//..."
+  }
+]
+```
+
+## Custom Labels
+
+Add custom labels to accounts for easier identification:
+
+```rust
+// From src-tauri/src/commands/mod.rs:879
+pub async fn update_account_label(
+    account_id: String, 
+    label: String
+) -> Result<(), String> {
+    // Validate label length (max 15 characters)
+    if label.chars().count() > 15 {
+        return Err("Label too long".to_string());
+    }
+    // Update account JSON...
+}
+```
+
+## Reordering
+
+Customize the display order of accounts:
+
+```rust
+// From src-tauri/src/commands/mod.rs:96
+pub async fn reorder_accounts(
+    proxy_state: tauri::State<'_, ProxyServiceState>,
+    account_ids: Vec<String>,
+) -> Result<(), String> {
+    modules::account::reorder_accounts(&account_ids)?;
+    // Reload token pool if proxy is running
+}
+```
+
+## Related Features
+
+- [Quota Monitoring](/features/quota-monitoring) - Track usage across accounts
+- [API Proxy](/features/api-proxy) - Route requests through managed accounts
+- [Model Routing](/features/model-routing) - Configure model mappings

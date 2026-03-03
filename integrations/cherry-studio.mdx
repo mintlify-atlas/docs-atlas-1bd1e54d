@@ -1,0 +1,408 @@
+---
+title: Cherry Studio integration
+description: Use Cherry Studio with Antigravity Manager for enhanced AI chat with multiple accounts
+---
+
+## Overview
+
+Cherry Studio is a powerful AI chat client that supports multiple providers and advanced features. Antigravity Manager provides seamless integration with native support for web search citations and streaming responses.
+
+<Info>
+Antigravity v4.1.21 introduced comprehensive Cherry Studio support, including SSE event completion and web search citation display.
+</Info>
+
+## Prerequisites
+
+- Antigravity Manager installed and running
+- Cherry Studio installed ([download here](https://github.com/kangfenmao/cherry-studio))
+- At least one active account
+
+## Configuration
+
+<Steps>
+  <Step title="Start Antigravity proxy">
+    1. Open Antigravity Manager
+    2. Navigate to **API Proxy** tab
+    3. Enable the proxy server
+    4. Verify port (default: 8045)
+  </Step>
+
+  <Step title="Add provider in Cherry Studio">
+    1. Open Cherry Studio settings
+    2. Go to **Providers** or **Models**
+    3. Add new custom provider:
+       - **Name**: Antigravity
+       - **Base URL**: `http://127.0.0.1:8045/v1`
+       - **API Key**: `sk-antigravity`
+       - **Protocol**: OpenAI
+  </Step>
+
+  <Step title="Configure models">
+    Add models you want to use:
+    - `claude-sonnet-4-6`
+    - `claude-sonnet-4-6-thinking`
+    - `gemini-3-flash`
+    - `gemini-3-pro-high`
+    - `gemini-3-pro-image` (for image generation)
+  </Step>
+</Steps>
+
+## Supported features
+
+### Chat completions
+
+Basic chat works out of the box:
+
+```json
+{
+  "model": "claude-sonnet-4-6",
+  "messages": [
+    {"role": "user", "content": "Hello!"}
+  ]
+}
+```
+
+Antigravity automatically:
+- Routes to available accounts
+- Handles streaming responses
+- Manages quota protection
+
+### Extended thinking
+
+Use thinking models for complex reasoning:
+
+<Tabs>
+  <Tab title="Adaptive thinking">
+    ```json
+    {
+      "model": "claude-sonnet-4-6-thinking",
+      "thinking": {
+        "type": "adaptive"
+      }
+    }
+    ```
+    
+    Antigravity maps this to 24576 token thinking budget.
+  </Tab>
+  
+  <Tab title="Fixed budget">
+    ```json
+    {
+      "model": "claude-sonnet-4-6-thinking",
+      "thinking": {
+        "budget": 16384
+      }
+    }
+    ```
+    
+    Explicitly set thinking token budget.
+  </Tab>
+</Tabs>
+
+<Note>
+Antigravity v4.1.21+ automatically converts Cherry Studio's `thinking.type: "adaptive"` to a fixed budget compatible with Gemini's API.
+</Note>
+
+### Web search with citations
+
+Cherry Studio's web search feature works seamlessly:
+
+1. Enable web search in Cherry Studio chat
+2. Antigravity automatically:
+   - Injects Google Search tool
+   - Executes search queries
+   - Returns results with citations
+   - Displays source links natively
+
+**Example output:**
+
+```markdown
+Based on my research:
+
+**Source 1**: [Google Gemini API](https://ai.google.dev/api)
+- Gemini 3 supports extended thinking mode
+
+**Source 2**: [Anthropic Documentation](https://docs.anthropic.com)
+- Claude models support adaptive reasoning
+```
+
+Cherry Studio will display these citations as clickable links.
+
+### Image generation
+
+Configure image generation models with custom parameters:
+
+<Steps>
+  <Step title="Add image model">
+    In Cherry Studio, add model: `gemini-3-pro-image`
+  </Step>
+
+  <Step title="Configure image settings">
+    Go to model settings in Cherry Studio:
+    
+    <ParamField path="size" type="string">
+      Image dimensions, e.g., `1920x1080`, `1024x1024`, `16:9`
+      
+      **Default**: `1024x1024`
+    </ParamField>
+    
+    <ParamField path="quality" type="string">
+      Quality level: `standard`, `medium`, `hd`
+      
+      **Mapping**:
+      - `standard` → 1K resolution
+      - `medium` → 2K resolution  
+      - `hd` → 4K resolution
+    </ParamField>
+    
+    <ParamField path="n" type="number">
+      Number of images to generate (1-10)
+      
+      **Default**: 1
+    </ParamField>
+  </Step>
+
+  <Step title="Generate images">
+    Simply describe the image in chat:
+    
+    ```
+    Generate: A futuristic cityscape at sunset
+    ```
+    
+    Antigravity will:
+    1. Route to image generation endpoint
+    2. Apply configured size/quality
+    3. Return image as Markdown
+  </Step>
+</Steps>
+
+### Multi-modal input
+
+Cherry Studio supports image input:
+
+1. Click image attachment icon
+2. Select image file
+3. Add text prompt
+4. Send message
+
+Antigravity handles:
+- Image encoding (Base64)
+- Multi-modal request formatting
+- Protocol conversion to Gemini
+
+## Advanced configuration
+
+### Model-specific settings
+
+Configure per-model parameters in Cherry Studio:
+
+<Tabs>
+  <Tab title="Chat model">
+    ```json
+    {
+      "model": "claude-sonnet-4-6",
+      "temperature": 0.7,
+      "max_tokens": 4096,
+      "top_p": 0.9
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Thinking model">
+    ```json
+    {
+      "model": "claude-sonnet-4-6-thinking",
+      "temperature": 1.0,
+      "thinking": {
+        "type": "adaptive"
+      },
+      "max_tokens": 8192
+    }
+    ```
+  </Tab>
+  
+  <Tab title="Image model">
+    ```json
+    {
+      "model": "gemini-3-pro-image",
+      "size": "1920x1080",
+      "quality": "hd",
+      "n": 1
+    }
+    ```
+  </Tab>
+</Tabs>
+
+### maxOutputTokens limit
+
+Cherry Studio may send very large `maxOutputTokens` values (e.g., 128k) that exceed Gemini's limits:
+
+<Warning>
+Antigravity automatically limits `maxOutputTokens` to **65536** for Claude protocol requests to prevent 400 errors.
+</Warning>
+
+This is handled automatically - no configuration needed.
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Empty responses with web search">
+    **Problem**: Web search returns no content in Cherry Studio
+
+    **Fixed in**: v4.1.21
+
+    **Solution**:
+    1. Upgrade Antigravity to v4.1.21 or later
+    2. Restart both Antigravity and Cherry Studio
+    3. Test web search again
+
+    **Technical details**: Antigravity now sends complete SSE event lifecycle required by Cherry Studio.
+  </Accordion>
+
+  <Accordion title="Thinking mode 400 errors">
+    **Problem**: `400 INVALID_ARGUMENT` with thinking models
+
+    **Fixed in**: v4.1.21
+
+    **Solution**:
+    1. Ensure Antigravity v4.1.21+
+    2. Use `claude-sonnet-4-6-thinking` model name
+    3. Set thinking type to "adaptive" in Cherry Studio
+    4. Antigravity automatically converts to compatible format
+  </Accordion>
+
+  <Accordion title="Connection errors">
+    **Problem**: Cannot connect to Antigravity
+
+    **Solutions**:
+    1. Verify base URL: `http://127.0.0.1:8045/v1`
+    2. Check Antigravity proxy is running
+    3. Test with: `curl http://127.0.0.1:8045/health`
+    4. Check firewall settings
+  </Accordion>
+
+  <Accordion title="Image generation errors">
+    **Problem**: Image generation fails or times out
+
+    **Solutions**:
+    1. Check account has image generation quota
+    2. Verify model name is `gemini-3-pro-image`
+    3. Try smaller image sizes first
+    4. Check Antigravity logs for detailed errors
+    5. Ensure max body size is sufficient (100MB default)
+  </Accordion>
+
+  <Accordion title="Citations not appearing">
+    **Problem**: Web search works but no citations shown
+
+    **Solutions**:
+    1. Verify Antigravity v4.1.21+
+    2. Check Cherry Studio supports citation display
+    3. Enable "Show sources" in Cherry Studio settings
+    4. Review response format in debug logs
+  </Accordion>
+</AccordionGroup>
+
+## Performance tips
+
+<CardGroup cols={2}>
+  <Card title="Model selection" icon="gauge-high">
+    - **Fast responses**: Use `gemini-3-flash`
+    - **Best quality**: Use `claude-sonnet-4-6`
+    - **Complex reasoning**: Use thinking models
+    - **Images**: Use `gemini-3-pro-image`
+  </Card>
+  
+  <Card title="Quota management" icon="chart-line">
+    - Monitor dashboard regularly
+    - Enable quota protection
+    - Use multiple accounts
+    - Set appropriate model routing
+  </Card>
+  
+  <Card title="Response speed" icon="bolt">
+    - Keep Antigravity local (same machine)
+    - Use streaming for long responses
+    - Flash models for quick tasks
+    - Reduce `max_tokens` when possible
+  </Card>
+  
+  <Card title="Reliability" icon="shield">
+    - Add multiple accounts for failover
+    - Enable automatic retry
+    - Configure rate limiting
+    - Monitor error rates
+  </Card>
+</CardGroup>
+
+## Best practices
+
+1. **Use streaming**: Enable streaming in Cherry Studio for better UX
+2. **Configure max tokens**: Set reasonable limits per model
+3. **Enable web search selectively**: Only when needed to save quota
+4. **Monitor quotas**: Check Antigravity dashboard regularly
+5. **Test configurations**: Verify settings work before heavy use
+6. **Keep updated**: Both Cherry Studio and Antigravity should be latest versions
+
+## Example configurations
+
+### Basic setup
+
+```json
+{
+  "provider": "Antigravity",
+  "baseURL": "http://127.0.0.1:8045/v1",
+  "apiKey": "sk-antigravity",
+  "models": [
+    {
+      "name": "claude-sonnet-4-6",
+      "maxTokens": 4096,
+      "temperature": 0.7
+    },
+    {
+      "name": "gemini-3-flash",
+      "maxTokens": 8192,
+      "temperature": 1.0
+    }
+  ]
+}
+```
+
+### With image generation
+
+```json
+{
+  "models": [
+    {
+      "name": "gemini-3-pro-image",
+      "type": "image",
+      "size": "1920x1080",
+      "quality": "hd"
+    }
+  ]
+}
+```
+
+### With thinking models
+
+```json
+{
+  "models": [
+    {
+      "name": "claude-sonnet-4-6-thinking",
+      "maxTokens": 8192,
+      "thinking": {
+        "type": "adaptive"
+      }
+    }
+  ]
+}
+```
+
+## Related documentation
+
+- [OpenAI API format](/api/openai-format)
+- [Image generation](/api/image-generation)
+- [Model routing](/features/model-routing)
+- [Quota monitoring](/features/quota-monitoring)
+- [Streaming responses](/api/streaming)

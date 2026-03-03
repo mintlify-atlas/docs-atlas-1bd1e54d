@@ -1,0 +1,518 @@
+---
+title: "Gemini Native Format"
+description: "Native Google Gemini API protocol for direct SDK integration"
+---
+
+## Endpoints
+
+### Generate Content
+
+```
+POST http://127.0.0.1:8045/v1beta/models/{model}:generateContent
+```
+
+### Stream Generate Content
+
+```
+POST http://127.0.0.1:8045/v1beta/models/{model}:streamGenerateContent?alt=sse
+```
+
+### List Models
+
+```
+GET http://127.0.0.1:8045/v1beta/models
+```
+
+### Get Model Info
+
+```
+GET http://127.0.0.1:8045/v1beta/models/{model}
+```
+
+### Count Tokens
+
+```
+POST http://127.0.0.1:8045/v1beta/models/{model}:countTokens
+```
+
+The Gemini native protocol endpoint provides direct compatibility with Google AI SDKs and supports advanced features like thinking signatures, grounding, and tool calling.
+
+## Authentication
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token authentication
+  ```
+  Authorization: Bearer sk-antigravity
+  ```
+</ParamField>
+
+Alternatively, use query parameter:
+
+<ParamField query="key" type="string">
+  API key as query parameter
+  ```
+  ?key=sk-antigravity
+  ```
+</ParamField>
+
+## Path Parameters
+
+<ParamField path="model" type="string" required>
+  Model name:
+  - `gemini-3-flash` - Fast and efficient
+  - `gemini-3-pro-high` - High quality reasoning
+  - `gemini-3-pro-low` - Cost-efficient
+  - `gemini-3-pro-image` - Image generation
+  - `claude-sonnet-4-6` - Mapped Claude model
+</ParamField>
+
+## Request Headers
+
+<ParamField header="Content-Type" type="string" required>
+  Must be `application/json`
+</ParamField>
+
+## Request Body
+
+<ParamField body="contents" type="array" required>
+  Conversation content in Gemini format
+  
+  <Expandable title="Content Object">
+    <ParamField body="role" type="string" required>
+      Message role: `user` or `model`
+    </ParamField>
+    
+    <ParamField body="parts" type="array" required>
+      Message parts (text, images, function calls)
+      
+      <Expandable title="Part Types">
+        <ParamField body="text" type="string">
+          Text content
+        </ParamField>
+        
+        <ParamField body="thought" type="boolean">
+          Mark as thinking content
+        </ParamField>
+        
+        <ParamField body="thoughtSignature" type="string">
+          Cryptographic signature for thought validation
+        </ParamField>
+        
+        <ParamField body="inlineData" type="object">
+          Embedded media data
+          
+          <Expandable title="Inline Data">
+            <ParamField body="mimeType" type="string">
+              MIME type, e.g., `image/jpeg`, `audio/mp3`
+            </ParamField>
+            
+            <ParamField body="data" type="string">
+              Base64-encoded data
+            </ParamField>
+          </Expandable>
+        </ParamField>
+        
+        <ParamField body="functionCall" type="object">
+          Function/tool call
+          
+          <Expandable title="Function Call">
+            <ParamField body="name" type="string">
+              Function name
+            </ParamField>
+            
+            <ParamField body="args" type="object">
+              Function arguments as JSON object
+            </ParamField>
+          </Expandable>
+        </ParamField>
+        
+        <ParamField body="functionResponse" type="object">
+          Function execution result
+          
+          <Expandable title="Function Response">
+            <ParamField body="name" type="string">
+              Function name
+            </ParamField>
+            
+            <ParamField body="response" type="object">
+              Result data
+            </ParamField>
+          </Expandable>
+        </ParamField>
+      </Expandable>
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="generationConfig" type="object">
+  Generation parameters
+  
+  <Expandable title="Generation Config">
+    <ParamField body="maxOutputTokens" type="integer">
+      Maximum output tokens (automatically capped to model limits)
+    </ParamField>
+    
+    <ParamField body="temperature" type="number">
+      Sampling temperature (0.0 to 2.0)
+    </ParamField>
+    
+    <ParamField body="topP" type="number">
+      Nucleus sampling (0.0 to 1.0)
+    </ParamField>
+    
+    <ParamField body="topK" type="integer">
+      Top-K sampling
+    </ParamField>
+    
+    <ParamField body="stopSequences" type="array">
+      Stop sequences for generation
+    </ParamField>
+    
+    <ParamField body="thinkingConfig" type="object">
+      Extended thinking configuration
+      
+      <Expandable title="Thinking Config">
+        <ParamField body="thinkingBudget" type="integer">
+          Token budget for reasoning (e.g., 8192, 16384, 24576)
+        </ParamField>
+        
+        <ParamField body="thinkingLevel" type="string">
+          Thinking level: `NONE`, `LOW`, `MEDIUM`, `HIGH`
+          (Auto-converted to budget internally)
+        </ParamField>
+      </Expandable>
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="tools" type="array">
+  Available tools/functions
+  
+  <Expandable title="Tool Definition">
+    <ParamField body="functionDeclarations" type="array">
+      Function declarations
+      
+      <Expandable title="Function">
+        <ParamField body="name" type="string" required>
+          Function name
+        </ParamField>
+        
+        <ParamField body="description" type="string">
+          Function description
+        </ParamField>
+        
+        <ParamField body="parameters" type="object">
+          JSON Schema for parameters
+        </ParamField>
+      </Expandable>
+    </ParamField>
+    
+    <ParamField body="googleSearch" type="object">
+      Enable Google Search grounding (automatic web search)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="systemInstruction" type="object">
+  System-level instruction
+  
+  <Expandable title="System Instruction">
+    <ParamField body="parts" type="array">
+      Instruction parts (same structure as content parts)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="project" type="string">
+  Project ID (automatically injected by proxy)
+</ParamField>
+
+## Response Format
+
+### Non-Streaming Response
+
+<ResponseField name="candidates" type="array">
+  Generated candidates
+  
+  <Expandable title="Candidate Object">
+    <ResponseField name="content" type="object">
+      Generated content
+      
+      <Expandable title="Content">
+        <ResponseField name="role" type="string">
+          Always `model`
+        </ResponseField>
+        
+        <ResponseField name="parts" type="array">
+          Response parts (text, function calls, thinking)
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+    
+    <ResponseField name="finishReason" type="string">
+      Completion reason: `STOP`, `MAX_TOKENS`, `SAFETY`, `RECITATION`
+    </ResponseField>
+    
+    <ResponseField name="index" type="integer">
+      Candidate index
+    </ResponseField>
+    
+    <ResponseField name="groundingMetadata" type="object">
+      Search grounding results
+      
+      <Expandable title="Grounding Metadata">
+        <ResponseField name="webSearchQueries" type="array">
+          Search queries executed
+        </ResponseField>
+        
+        <ResponseField name="groundingChunks" type="array">
+          Web sources with titles and URIs
+        </ResponseField>
+      </Expandable>
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="usageMetadata" type="object">
+  Token usage statistics
+  
+  <Expandable title="Usage Metadata">
+    <ResponseField name="promptTokenCount" type="integer">
+      Input tokens
+    </ResponseField>
+    
+    <ResponseField name="candidatesTokenCount" type="integer">
+      Output tokens
+    </ResponseField>
+    
+    <ResponseField name="totalTokenCount" type="integer">
+      Total tokens
+    </ResponseField>
+    
+    <ResponseField name="cachedContentTokenCount" type="integer">
+      Cached tokens (context caching)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="modelVersion" type="string">
+  Actual model version used
+</ResponseField>
+
+## Example: Basic Generation
+
+```bash
+curl -X POST "http://127.0.0.1:8045/v1beta/models/gemini-3-flash:generateContent" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-antigravity" \
+  -d '{
+    "contents": [
+      {
+        "role": "user",
+        "parts": [{"text": "Explain how AI works"}]
+      }
+    ]
+  }'
+```
+
+## Example: Streaming
+
+```bash
+curl -X POST "http://127.0.0.1:8045/v1beta/models/gemini-3-pro-high:streamGenerateContent?alt=sse" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-antigravity" \
+  -d '{
+    "contents": [
+      {
+        "role": "user",
+        "parts": [{"text": "Write a story about space exploration"}]
+      }
+    ],
+    "generationConfig": {
+      "temperature": 0.8,
+      "maxOutputTokens": 2048
+    }
+  }'
+```
+
+## Example: With System Instruction
+
+```bash
+curl -X POST "http://127.0.0.1:8045/v1beta/models/gemini-3-flash:generateContent" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-antigravity" \
+  -d '{
+    "systemInstruction": {
+      "parts": [{"text": "You are a helpful coding tutor. Always provide examples."}]
+    },
+    "contents": [
+      {
+        "role": "user",
+        "parts": [{"text": "How do I sort a list in Python?"}]
+      }
+    ]
+  }'
+```
+
+## Example: Function Calling
+
+```bash
+curl -X POST "http://127.0.0.1:8045/v1beta/models/gemini-3-flash:generateContent" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-antigravity" \
+  -d '{
+    "contents": [
+      {
+        "role": "user",
+        "parts": [{"text": "What is the weather in Paris?"}]
+      }
+    ],
+    "tools": [
+      {
+        "functionDeclarations": [
+          {
+            "name": "get_weather",
+            "description": "Get current weather for a city",
+            "parameters": {
+              "type": "object",
+              "properties": {
+                "city": {"type": "string"}
+              },
+              "required": ["city"]
+            }
+          }
+        ]
+      }
+    ]
+  }'
+```
+
+## Example: Google Search Grounding
+
+```bash
+curl -X POST "http://127.0.0.1:8045/v1beta/models/gemini-3-pro-high:generateContent" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-antigravity" \
+  -d '{
+    "contents": [
+      {
+        "role": "user",
+        "parts": [{"text": "What are the latest developments in quantum computing?"}]
+      }
+    ],
+    "tools": [
+      {"googleSearch": {}}
+    ]
+  }'
+```
+
+## Example: Multi-Modal (Image)
+
+```bash
+curl -X POST "http://127.0.0.1:8045/v1beta/models/gemini-3-flash:generateContent" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-antigravity" \
+  -d '{
+    "contents": [
+      {
+        "role": "user",
+        "parts": [
+          {"text": "Describe this image:"},
+          {
+            "inlineData": {
+              "mimeType": "image/jpeg",
+              "data": "base64-encoded-image-data"
+            }
+          }
+        ]
+      }
+    ]
+  }'
+```
+
+## Example: Extended Thinking
+
+```bash
+curl -X POST "http://127.0.0.1:8045/v1beta/models/gemini-3-pro-high:generateContent" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-antigravity" \
+  -d '{
+    "contents": [
+      {
+        "role": "user",
+        "parts": [{"text": "Solve this complex math problem step by step: ..."}]
+      }
+    ],
+    "generationConfig": {
+      "thinkingConfig": {
+        "thinkingBudget": 16384
+      }
+    }
+  }'
+```
+
+## Model Information
+
+Get detailed model specs:
+
+```bash
+curl "http://127.0.0.1:8045/v1beta/models/gemini-3-pro-high" \
+  -H "Authorization: Bearer sk-antigravity"
+```
+
+Response includes:
+- `maxOutputTokens` - Maximum output limit
+- `supportsThinking` - Extended thinking support
+- `supportedGenerationMethods` - Available methods
+- `inputTokenLimit` - Context window size
+
+## Token Counting
+
+```bash
+curl -X POST "http://127.0.0.1:8045/v1beta/models/gemini-3-flash:countTokens" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-antigravity" \
+  -d '{
+    "contents": [
+      {
+        "role": "user",
+        "parts": [{"text": "Count tokens in this message"}]
+      }
+    ]
+  }'
+```
+
+Response:
+```json
+{
+  "totalTokens": 8
+}
+```
+
+## Features
+
+- **Native Gemini Protocol**: Full compatibility with Google AI SDK
+- **Auto Project Injection**: Automatically injects project ID from account pool
+- **Dynamic Token Limits**: Automatically caps `maxOutputTokens` to model limits
+- **Thinking Signatures**: Validates and preserves thinking signatures across turns
+- **MCP Fuzzy Matching**: Intelligent tool name matching for MCP servers
+- **Grounding Support**: Google Search integration for factual queries
+- **Context Caching**: Automatic caching for repeated contexts
+
+## Error Format
+
+```json
+{
+  "error": {
+    "code": 400,
+    "message": "Invalid model name",
+    "status": "INVALID_ARGUMENT"
+  }
+}
+```
+
+Common error codes:
+- `400` - Invalid request
+- `401` - Authentication failed
+- `429` - Quota exceeded (triggers auto-retry)
+- `500` - Internal error

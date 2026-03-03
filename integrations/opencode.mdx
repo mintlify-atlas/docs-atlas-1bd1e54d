@@ -1,0 +1,348 @@
+---
+title: OpenCode integration
+description: Integrate Antigravity Manager with OpenCode for seamless AI-powered development
+---
+
+## Overview
+
+Antigravity Manager provides first-class integration with OpenCode through automatic configuration sync and provider management.
+
+<Info>
+OpenCode integration was significantly enhanced in v4.1.16 with support for custom base URLs and environment variable-based configuration.
+</Info>
+
+## Prerequisites
+
+- Antigravity Manager installed and configured
+- OpenCode installed (`npm install -g opencode`)
+- At least one active account in Antigravity
+
+## Configuration sync
+
+<Steps>
+  <Step title="Open sync dialog">
+    1. Navigate to **API Proxy** → **External Providers**
+    2. Click the **OpenCode Sync** card
+  </Step>
+
+  <Step title="Click Sync button">
+    Antigravity will automatically:
+    - Generate `~/.config/opencode/opencode.json`
+    - Create `antigravity-manager` provider
+    - Preserve existing Google/Anthropic providers
+  </Step>
+
+  <Step title="Optional: Sync accounts">
+    Check **Sync accounts** to export:
+    - `antigravity-accounts.json` (plugin-compatible v3 format)
+    - Allows OpenCode plugin to import accounts directly
+  </Step>
+</Steps>
+
+<Note>
+**Windows users**: Configuration path is `C:\Users\<username>\.config\opencode\`
+</Note>
+
+## Provider configuration
+
+The sync creates an `antigravity-manager` provider with these properties:
+
+```json
+{
+  "providers": {
+    "antigravity-manager": {
+      "baseURL": "http://127.0.0.1:8045",
+      "apiKey": "sk-antigravity",
+      "models": [
+        "claude-sonnet-4-6",
+        "claude-sonnet-4-6-thinking",
+        "gemini-3-flash",
+        "gemini-3-pro-high"
+      ]
+    }
+  }
+}
+```
+
+### Custom base URL
+
+For Docker or remote deployments, set a custom base URL:
+
+<Steps>
+  <Step title="Open settings">
+    In the OpenCode Sync dialog, find **Custom Manager BaseURL**
+  </Step>
+
+  <Step title="Enter URL">
+    ```
+    http://your-server:8045
+    ```
+  </Step>
+
+  <Step title="Sync configuration">
+    Click **Sync** to apply the custom URL
+  </Step>
+</Steps>
+
+## Usage examples
+
+### Basic usage
+
+```bash
+# Test the antigravity-manager provider
+opencode run "test" --model antigravity-manager/claude-sonnet-4-6
+
+# Use with variant (high/max/low)
+opencode run "test" --model antigravity-manager/claude-sonnet-4-6-thinking --variant high
+```
+
+### Model variants
+
+Antigravity supports OpenCode's variant system:
+
+<Tabs>
+  <Tab title="High performance">
+    ```bash
+    opencode run "complex task" \
+      --model antigravity-manager/gemini-3-pro-high \
+      --variant max
+    ```
+    
+    Routes to Pro/Ultra tier accounts with maximum quota.
+  </Tab>
+  
+  <Tab title="Balanced">
+    ```bash
+    opencode run "moderate task" \
+      --model antigravity-manager/claude-sonnet-4-6 \
+      --variant medium
+    ```
+    
+    Uses standard Pro tier accounts.
+  </Tab>
+  
+  <Tab title="Cost-effective">
+    ```bash
+    opencode run "simple task" \
+      --model antigravity-manager/gemini-3-flash \
+      --variant low
+    ```
+    
+    Prefers free/low-tier accounts.
+  </Tab>
+</Tabs>
+
+### Thinking models
+
+```bash
+# Extended thinking with budget
+opencode run "analyze this codebase" \
+  --model antigravity-manager/claude-sonnet-4-6-thinking
+
+# Thinking with variant
+opencode run "complex problem" \
+  --model antigravity-manager/claude-opus-4-6-thinking \
+  --variant high
+```
+
+<Note>
+Antigravity automatically handles thinking budget conversion between OpenCode's format and Gemini's internal format.
+</Note>
+
+## Configuration management
+
+### Clear configuration
+
+Remove Antigravity configuration and legacy entries:
+
+```bash
+# In OpenCode Sync dialog, click "Clear Config"
+```
+
+This removes:
+- `antigravity-manager` provider
+- Legacy plugin configurations
+- Temporary sync files
+
+### Restore from backup
+
+If sync creates issues:
+
+```bash
+# In OpenCode Sync dialog, click "Restore"
+```
+
+Restores the previous `opencode.json` from automatic backup.
+
+### Manual configuration
+
+You can also edit `~/.config/opencode/opencode.json` directly:
+
+```json
+{
+  "providers": {
+    "antigravity-manager": {
+      "baseURL": "http://127.0.0.1:8045",
+      "apiKey": "sk-your-api-key",
+      "defaultModel": "claude-sonnet-4-6",
+      "models": [
+        "claude-sonnet-4-6",
+        "claude-sonnet-4-6-thinking",
+        "gemini-3-flash",
+        "gemini-3-pro-high"
+      ]
+    }
+  }
+}
+```
+
+## Docker/remote deployment
+
+### Docker Compose setup
+
+For Docker Compose networks:
+
+```yaml
+services:
+  antigravity:
+    image: lbjlaq/antigravity-manager:latest
+    ports:
+      - "8045:8045"
+    environment:
+      - API_KEY=sk-your-key
+```
+
+In OpenCode sync:
+1. Set **Custom Manager BaseURL**: `http://antigravity:8045`
+2. Sync configuration
+
+### Remote server
+
+For servers on different machines:
+
+```bash
+# Set custom URL to remote server
+Custom Manager BaseURL: http://192.168.1.100:8045
+```
+
+<Warning>
+Ensure the Antigravity proxy is configured to allow LAN access:
+- Enable **Allow LAN Access** in **API Proxy** settings
+- Or set `ABV_BIND_LOCAL_ONLY=false` for Docker
+</Warning>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Provider not found">
+    **Problem**: `Error: Provider 'antigravity-manager' not found`
+
+    **Solutions**:
+    1. Verify sync completed successfully
+    2. Check file exists: `~/.config/opencode/opencode.json`
+    3. Run sync again from Antigravity UI
+    4. Verify JSON syntax is valid
+  </Accordion>
+
+  <Accordion title="Connection refused">
+    **Problem**: `ECONNREFUSED` when calling models
+
+    **Solutions**:
+    1. Verify Antigravity proxy is running
+    2. Check base URL matches actual server address
+    3. For Docker: use container name, not localhost
+    4. Test with: `curl http://127.0.0.1:8045/health`
+  </Accordion>
+
+  <Accordion title="Thinking budget errors">
+    **Problem**: `AI_UnsupportedFunctionalityError: 'thinking requires a budget'`
+
+    **Solutions**:
+    1. Upgrade to Antigravity v4.1.27 or later
+    2. Verify thinking model names include `-thinking` suffix
+    3. Check account supports thinking-capable models
+    4. Review Antigravity logs for conversion details
+  </Accordion>
+
+  <Accordion title="Model not available">
+    **Problem**: Model listed but returns 404
+
+    **Solutions**:
+    1. Check model is available in Antigravity dashboard
+    2. Refresh account quotas in Antigravity
+    3. Verify model name spelling (case-sensitive)
+    4. Check custom model mappings in Antigravity
+  </Accordion>
+</AccordionGroup>
+
+## Best practices
+
+1. **Use automatic sync**: Let Antigravity manage the configuration
+2. **Multiple providers**: Keep both `antigravity-manager` and native providers for flexibility
+3. **Environment-specific URLs**: Use custom URLs for dev/staging/production
+4. **Regular updates**: Re-sync after adding new models or accounts
+5. **Backup configs**: Antigravity creates automatic backups before each sync
+
+## Advanced features
+
+### Account export
+
+When **Sync accounts** is enabled, Antigravity exports:
+
+```json
+// ~/.config/opencode/antigravity-accounts.json
+{
+  "accounts": [
+    {
+      "email": "user@example.com",
+      "tier": "pro",
+      "quota": {
+        "gemini-3-flash": 0.85,
+        "gemini-3-pro-high": 0.42
+      }
+    }
+  ]
+}
+```
+
+This allows OpenCode plugins to:
+- Display account information
+- Show quota status
+- Enable account-specific features
+
+### Coexisting with native providers
+
+Antigravity sync preserves existing providers:
+
+```json
+{
+  "providers": {
+    "google": {
+      "apiKey": "your-google-key"
+    },
+    "anthropic": {
+      "apiKey": "your-anthropic-key"
+    },
+    "antigravity-manager": {
+      "baseURL": "http://127.0.0.1:8045"
+    }
+  }
+}
+```
+
+Use whichever fits your needs:
+
+```bash
+# Direct Google API
+opencode run "task" --model google/gemini-3-flash
+
+# Through Antigravity (with rotation)
+opencode run "task" --model antigravity-manager/gemini-3-flash
+```
+
+## Related documentation
+
+- [OpenCode Sync implementation](/architecture/proxy-server#opencode-integration)
+- [API Proxy settings](/configuration/proxy-settings)
+- [Model routing](/features/model-routing)
+- [Docker deployment](/deployment/docker)

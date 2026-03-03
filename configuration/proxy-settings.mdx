@@ -1,0 +1,235 @@
+---
+title: 'Proxy Server Settings'
+description: 'Configure the built-in API proxy server for OpenAI/Anthropic/Gemini compatibility'
+icon: 'network-wired'
+---
+
+## Overview
+
+Antigravity Manager includes a built-in proxy server that translates OpenAI, Anthropic, and Gemini API requests to use your Google AI accounts.
+
+## Basic Configuration
+
+### Server Settings
+
+<ParamField path="enabled" type="boolean" default="false">
+  Enable the proxy service
+</ParamField>
+
+<ParamField path="port" type="number" default="8045">
+  Listening port for the proxy server
+  
+  **Range**: 8000-65535
+  
+  **Location**: `config.rs:478`
+</ParamField>
+
+<ParamField path="auto_start" type="boolean" default="false">
+  Automatically start proxy server when application launches
+  
+  **Location**: `config.rs:487`
+</ParamField>
+
+<ParamField path="request_timeout" type="number" default="120">
+  API request timeout in seconds
+  
+  **Default**: 120 seconds  
+  **Range**: 30-7200 seconds
+  
+  **Location**: `config.rs:494-495`
+</ParamField>
+
+### Network Access
+
+<ParamField path="allow_lan_access" type="boolean" default="false">
+  Allow LAN access to the proxy server
+  
+  - **false**: Bind to `127.0.0.1` (local only, privacy-first)
+  - **true**: Bind to `0.0.0.0` (allow LAN access)
+  
+  **Location**: `config.rs:463-467`
+</ParamField>
+
+<Warning>
+  When enabling LAN access, ensure you configure authentication to prevent unauthorized access.
+</Warning>
+
+### Authentication Modes
+
+<ParamField path="auth_mode" type="enum" default="auto">
+  API authentication policy
+  
+  **Options**:
+  - `off`: No authentication required
+  - `strict`: Authentication required for all routes
+  - `all_except_health`: Authentication required except `/healthz`
+  - `auto`: Recommended defaults (LAN=all_except_health, local=off)
+  
+  **Location**: `config.rs:469-476`
+</ParamField>
+
+<ParamField path="api_key" type="string" required>
+  API key for client authentication
+  
+  **Format**: Must start with `sk-` followed by UUID
+  
+  **Default**: Auto-generated on first run  
+  **Example**: `sk-a1b2c3d4e5f6...`
+  
+  **Location**: `config.rs:481`
+</ParamField>
+
+<ParamField path="admin_password" type="string" optional>
+  Web UI management console password
+  
+  If not set, defaults to `api_key` value.
+  
+  **Location**: `config.rs:484`
+</ParamField>
+
+## Upstream Proxy Configuration
+
+Route requests through an upstream proxy server:
+
+<ParamField path="upstream_proxy.enabled" type="boolean" default="false">
+  Enable upstream proxy
+  
+  **Location**: `config.rs:564`
+</ParamField>
+
+<ParamField path="upstream_proxy.url" type="string">
+  Upstream proxy URL
+  
+  **Supported protocols**: `http://`, `https://`, `socks5://`
+  
+  **Example**: `http://127.0.0.1:7890`
+  
+  **Location**: `config.rs:566`
+</ParamField>
+
+<Info>
+  If the proxy URL doesn't include a protocol, `http://` is automatically prepended.
+  See `normalize_proxy_url()` in `config.rs:10-21`
+</Info>
+
+## Logging Configuration
+
+<ParamField path="enable_logging" type="boolean" default="true">
+  Enable request logging (required for token statistics)
+  
+  **Location**: `config.rs:499`
+</ParamField>
+
+<ParamField path="debug_logging.enabled" type="boolean" default="false">
+  Enable debug logging (saves full request/response chain)
+  
+  **Location**: `config.rs:502`
+</ParamField>
+
+<ParamField path="debug_logging.output_dir" type="string" optional>
+  Custom directory for debug logs
+  
+  If not set, uses default application data directory.
+  
+  **Location**: `config.rs:503`
+</ParamField>
+
+## Advanced Settings
+
+### User-Agent Override
+
+<ParamField path="user_agent_override" type="string" optional>
+  Override User-Agent header sent to upstream APIs
+  
+  **Example**: `antigravity/1.15.8 darwin/arm64`
+  
+  **Location**: `config.rs:515`
+</ParamField>
+
+<ParamField path="saved_user_agent" type="string" optional>
+  Persisted User-Agent value (even when override is disabled)
+  
+  **Location**: `config.rs:536-537`
+</ParamField>
+
+## Configuration Example
+
+```json
+{
+  "proxy": {
+    "enabled": true,
+    "port": 8045,
+    "auto_start": true,
+    "allow_lan_access": false,
+    "auth_mode": "auto",
+    "api_key": "sk-a1b2c3d4e5f6...",
+    "admin_password": "my-secure-password",
+    "request_timeout": 120,
+    "enable_logging": true,
+    "upstream_proxy": {
+      "enabled": false,
+      "url": ""
+    },
+    "debug_logging": {
+      "enabled": false,
+      "output_dir": null
+    },
+    "user_agent_override": null
+  }
+}
+```
+
+## Usage Examples
+
+### Python (OpenAI SDK)
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="http://127.0.0.1:8045/v1",
+    api_key="sk-your-antigravity-key"
+)
+
+response = client.chat.completions.create(
+    model="gemini-3-flash",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+
+print(response.choices[0].message.content)
+```
+
+### Python (Anthropic SDK)
+
+```python
+from anthropic import Anthropic
+
+client = Anthropic(
+    base_url="http://127.0.0.1:8045",
+    api_key="sk-your-antigravity-key"
+)
+
+response = client.messages.create(
+    model="claude-sonnet-4-6",
+    max_tokens=1024,
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+
+print(response.content[0].text)
+```
+
+### Python (Native Gemini SDK)
+
+```python
+import google.generativeai as genai
+
+genai.configure(
+    api_key="sk-your-antigravity-key",
+    transport='rest',
+    client_options={'api_endpoint': 'http://127.0.0.1:8045'}
+)
+
+model = genai.GenerativeModel('gemini-3-flash')
+response = model.generate_content("Hello!")
+print(response.text)
+```

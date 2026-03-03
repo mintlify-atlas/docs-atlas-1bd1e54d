@@ -1,0 +1,660 @@
+---
+title: Debugging & Logging
+description: Advanced troubleshooting, log analysis, and debugging techniques
+---
+
+## Overview
+
+This guide covers advanced debugging techniques for diagnosing issues with Antigravity Manager, including log analysis, debug console usage, and diagnostic commands.
+
+## Log System
+
+### Log File Locations
+
+Logs are stored in the data directory and rotated daily:
+
+**macOS and Linux:**
+```bash
+~/.antigravity_tools/logs/app.log
+```
+
+**Windows:**
+```bash
+%USERPROFILE%\.antigravity_tools\logs\app.log
+```
+
+**Docker:**
+```bash
+# Inside container
+/root/.antigravity_tools/logs/app.log
+
+# From host (if volume mounted)
+~/.antigravity_tools/logs/app.log
+```
+
+### Log Rotation and Cleanup
+
+<Info>
+From the source code (`modules/logger.rs:88-186`), logs are automatically managed:
+- **Daily rotation**: New log file created each day
+- **Age-based cleanup**: Logs older than 7 days are deleted
+- **Size-based cleanup**: If logs exceed 1GB, oldest files are deleted until below 512MB
+</Info>
+
+**Automatic cleanup settings:**
+- **Max total size**: 1GB
+- **Target size after cleanup**: 512MB
+- **Retention period**: 7 days
+- **Cleanup runs**: On application startup
+
+**Manual cleanup:**
+```bash
+# Delete all logs
+rm -rf ~/.antigravity_tools/logs/*
+
+# Or use the UI: Settings → About → Clear Logs
+```
+
+### Log Levels
+
+Logs use different levels to categorize messages:
+
+- **ERROR**: Critical errors that need immediate attention
+- **WARN**: Warning messages about potential issues
+- **INFO**: General informational messages (default level)
+- **DEBUG**: Detailed debugging information
+- **TRACE**: Very detailed trace information
+
+**Change log level:**
+```bash
+# Set via environment variable (before starting app)
+export RUST_LOG=debug
+
+# Or for specific modules
+export RUST_LOG=antigravity_manager::proxy=debug
+```
+
+## Reading and Analyzing Logs
+
+### Real-time Log Monitoring
+
+**Monitor logs as they're written:**
+```bash
+# macOS/Linux
+tail -f ~/.antigravity_tools/logs/app.log
+
+# Windows (PowerShell)
+Get-Content -Path "$env:USERPROFILE\.antigravity_tools\logs\app.log" -Wait -Tail 50
+```
+
+**Filter for specific events:**
+```bash
+# Follow errors only
+tail -f ~/.antigravity_tools/logs/app.log | grep ERROR
+
+# Follow account-related logs
+tail -f ~/.antigravity_tools/logs/app.log | grep -i account
+
+# Follow 403/401 errors
+tail -f ~/.antigravity_tools/logs/app.log | grep -E "403|401"
+```
+
+### Common Log Patterns
+
+<AccordionGroup>
+  <Accordion title="Account disabled due to invalid_grant">
+    **Log pattern:**
+    ```
+    [ERROR] Disabling account <email> due to invalid_grant during token refresh
+    [WARN] Account <id> marked as disabled: invalid_grant: <error details>
+    ```
+
+    **What it means:**
+    - The refresh token has been revoked or expired
+    - Account needs re-authorization
+
+    **Action:**
+    - Delete and re-add the account via OAuth
+    - See [Account Errors](/troubleshooting/account-errors#401-unauthorized-errors)
+  </Accordion>
+
+  <Accordion title="403 Forbidden - Account marked as forbidden">
+    **Log pattern:**
+    ```
+    [WARN] 🚫 Account <email> marked as forbidden (403): <reason>
+    [WARN] Account <id> returned 403 Forbidden during quota fetch, marking as forbidden
+    ```
+
+    **What it means:**
+    - Account has been blocked or lacks permissions
+    - Automatically removed from active pool
+
+    **Action:**
+    - Check account details for verification links
+    - See [Account Errors](/troubleshooting/account-errors#403-forbidden-errors)
+  </Accordion>
+
+  <Accordion title="VALIDATION_REQUIRED temporary block">
+    **Log pattern:**
+    ```
+    [WARN] VALIDATION_REQUIRED detected on account <email>, temporarily blocking
+    [INFO] Account <id> will be unblocked after 10 minutes
+    ```
+
+    **What it means:**
+    - Google requires additional verification
+    - Account automatically blocked for 10 minutes
+    - System will retry after the block expires
+
+    **Action:**
+    - Wait for automatic retry, or
+    - Complete verification if link is provided
+  </Accordion>
+
+  <Accordion title="Token refresh success/failure">
+    **Success pattern:**
+    ```
+    [INFO] Successfully refreshed access token for account <email>
+    [INFO] Token will expire at <timestamp>
+    ```
+
+    **Failure pattern:**
+    ```
+    [ERROR] Failed to refresh access token for <email>: <error>
+    [WARN] 401 Unauthorized for <email>, forcing refresh...
+    ```
+
+    **What it means:**
+    - Background token refresh occurred
+    - Indicates token health
+
+    **Action:**
+    - Success: No action needed
+    - Failure: Check for `invalid_grant` errors
+  </Accordion>
+
+  <Accordion title="Quota fetch and sync">
+    **Log pattern:**
+    ```
+    [INFO] Fetching quota for account <email>
+    [INFO] Account <email> quota: Gemini Pro 75%, Flash 82%
+    [WARN] Account unauthorized (403 Forbidden), marking as forbidden
+    ```
+
+    **What it means:**
+    - Periodic quota refresh from Google API
+    - Shows current quota percentages
+
+    **Action:**
+    - Monitor for quota depletion
+    - Enable quota protection if needed
+  </Accordion>
+
+  <Accordion title="Proxy pool errors">
+    **Log pattern:**
+    ```
+    [ERROR] Failed to connect via proxy <proxy-url>: Connection timeout
+    [WARN] Proxy <id> marked as unhealthy, removing from pool
+    [INFO] Retrying request without proxy
+    ```
+
+    **What it means:**
+    - Proxy connection failed
+    - System falling back to direct connection or next proxy
+
+    **Action:**
+    - Verify proxy credentials and connectivity
+    - Check proxy pool health check results
+  </Accordion>
+</AccordionGroup>
+
+### Log Analysis Commands
+
+**Count errors by type:**
+```bash
+# Count by log level
+grep -c "ERROR" ~/.antigravity_tools/logs/app.log
+grep -c "WARN" ~/.antigravity_tools/logs/app.log
+
+# Count specific errors
+grep -c "invalid_grant" ~/.antigravity_tools/logs/app.log
+grep -c "403 Forbidden" ~/.antigravity_tools/logs/app.log
+```
+
+**Extract error messages:**
+```bash
+# Get all ERROR lines with context
+grep -A 3 -B 1 "ERROR" ~/.antigravity_tools/logs/app.log
+
+# Get errors from last hour
+grep "$(date -d '1 hour ago' '+%Y-%m-%d %H')" ~/.antigravity_tools/logs/app.log | grep ERROR
+```
+
+**Find account-specific issues:**
+```bash
+# Replace <email> with actual account email
+grep "<email>" ~/.antigravity_tools/logs/app.log | tail -20
+
+# Find all disabled accounts
+grep "marked as disabled" ~/.antigravity_tools/logs/app.log
+```
+
+## Debug Console
+
+### Accessing Debug Console
+
+**Desktop Application:**
+1. Navigate to Settings → About
+2. Click "Debug Console" button
+3. Console opens in a new section
+
+**Web/Docker Mode:**
+- Debug console is automatically available in the interface
+- Logs refresh every 2 seconds via polling
+
+### Using Debug Console
+
+<Info>
+The Debug Console provides real-time visibility into:
+- HTTP requests and responses
+- Account selection and rotation
+- Token refresh operations
+- Error details and stack traces
+</Info>
+
+**What you can see:**
+- Request method, URL, and headers
+- Response status codes and timing
+- Account used for each request
+- Model mapping and routing decisions
+- Thinking mode activation
+- Tool call parameters
+
+**Debug Console features:**
+- Real-time log streaming
+- Filter by log level (ERROR, WARN, INFO, DEBUG)
+- Search within logs
+- Auto-scroll toggle
+- Copy logs to clipboard
+- Clear console
+
+### Debugging Mode Toggle
+
+**Enable detailed logging:**
+1. Settings → About → Debug Console
+2. Toggle "Enable Debug Mode"
+3. Logs will include:
+   - Full request/response bodies
+   - Detailed error stack traces
+   - Internal state changes
+
+<Warning>
+Debug mode generates significantly more log data. Disable when not actively debugging to prevent large log files.
+</Warning>
+
+## Diagnostic Commands
+
+### System Information
+
+**Check application version:**
+```bash
+# macOS
+defaults read /Applications/Antigravity\ Tools.app/Contents/Info.plist CFBundleShortVersionString
+
+# Linux
+antigravity-manager --version
+
+# Or in UI: Settings → About
+```
+
+**Verify data directory:**
+```bash
+# Check if data directory exists
+ls -la ~/.antigravity_tools/
+
+# Show directory structure
+tree ~/.antigravity_tools/ -L 2
+
+# Check disk usage
+du -sh ~/.antigravity_tools/
+```
+
+### Network Diagnostics
+
+**Test proxy service:**
+```bash
+# Check if proxy is listening
+curl -v http://127.0.0.1:8045/health
+
+# Test OpenAI-compatible endpoint
+curl http://127.0.0.1:8045/v1/models \
+  -H "Authorization: Bearer sk-antigravity"
+
+# Test Claude endpoint
+curl http://127.0.0.1:8045/v1/messages \
+  -H "x-api-key: sk-antigravity" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "claude-sonnet-4-6", "messages": [{"role": "user", "content": "test"}]}'
+```
+
+**Check port availability:**
+```bash
+# macOS/Linux
+lsof -i :8045
+netstat -an | grep 8045
+
+# Windows
+netstat -ano | findstr :8045
+```
+
+**Test external connectivity:**
+```bash
+# Test Google API access
+curl -v https://generativelanguage.googleapis.com/
+
+# Test with proxy (if configured)
+curl -x socks5://proxy-host:port https://generativelanguage.googleapis.com/
+```
+
+### Database Diagnostics
+
+**Account database:**
+```bash
+# List all accounts
+cat ~/.antigravity_tools/accounts/index.json | jq .
+
+# Count accounts
+cat ~/.antigravity_tools/accounts/index.json | jq 'length'
+
+# Find disabled accounts
+cat ~/.antigravity_tools/accounts/index.json | jq '.[] | select(.disabled == true)'
+
+# Check specific account
+cat ~/.antigravity_tools/accounts/<account-id>.json | jq .
+```
+
+**Configuration:**
+```bash
+# View proxy config
+cat ~/.antigravity_tools/gui_config.json | jq '.proxy'
+
+# Check API key
+cat ~/.antigravity_tools/gui_config.json | jq '.proxy.api_key'
+
+# View model mappings
+cat ~/.antigravity_tools/gui_config.json | jq '.proxy.model_overrides'
+```
+
+**Security logs:**
+```bash
+# Check access logs database
+sqlite3 ~/.antigravity_tools/security.db "SELECT * FROM access_logs ORDER BY timestamp DESC LIMIT 10;"
+
+# Count requests by IP
+sqlite3 ~/.antigravity_tools/security.db "SELECT ip, COUNT(*) FROM access_logs GROUP BY ip ORDER BY COUNT(*) DESC;"
+```
+
+## Advanced Debugging Techniques
+
+### Request Tracing
+
+**Enable request tracing:**
+```bash
+# Set environment variable
+export RUST_LOG=antigravity_manager::proxy::handlers=trace
+
+# Start application
+# All proxy requests will be logged in detail
+```
+
+**What you'll see:**
+- Full request body (including messages, parameters)
+- Model mapping decisions
+- Account selection logic
+- Token refresh attempts
+- Response transformation
+- Streaming chunk details
+
+### Memory and Performance
+
+**Monitor resource usage:**
+```bash
+# macOS
+top -pid $(pgrep -f "Antigravity Tools")
+
+# Linux
+top -p $(pgrep -f antigravity-manager)
+
+# Windows (PowerShell)
+Get-Process "antigravity-manager" | Format-Table Id,ProcessName,CPU,WS -AutoSize
+```
+
+**Check for memory leaks:**
+- Monitor over extended period
+- Look for continuously increasing memory usage
+- Normal: Memory stabilizes after initial requests
+- Issue: Memory grows unbounded over hours
+
+### Network Traffic Analysis
+
+**Capture HTTP traffic:**
+```bash
+# Using tcpdump (requires root)
+sudo tcpdump -i lo0 -A -s 0 'tcp port 8045'
+
+# Using Wireshark
+# Filter: tcp.port == 8045
+```
+
+**Analyze upstream requests:**
+```bash
+# Monitor outgoing Google API calls
+sudo tcpdump -i any -A -s 0 'host generativelanguage.googleapis.com'
+```
+
+## Troubleshooting Scenarios
+
+<AccordionGroup>
+  <Accordion title="Requests are slow or timing out">
+    **Diagnostic steps:**
+
+    1. **Check logs for retry patterns:**
+       ```bash
+       grep -i "retry\|timeout" ~/.antigravity_tools/logs/app.log | tail -20
+       ```
+
+    2. **Monitor network latency:**
+       ```bash
+       # Ping Google API
+       ping generativelanguage.googleapis.com
+       
+       # Test with proxy
+       curl -w "@-" -o /dev/null -s -x socks5://proxy:port https://google.com <<< "time_total: %{time_total}\n"
+       ```
+
+    3. **Check account rotation:**
+       - Slow rotation may indicate all accounts are rate-limited
+       - Look for "Too Many Requests (429)" in logs
+
+    4. **Verify quota protection settings:**
+       - Settings → Quota Protection
+       - If enabled, requests may be blocked when quota is low
+  </Accordion>
+
+  <Accordion title="Accounts keep getting disabled">
+    **Diagnostic steps:**
+
+    1. **Check disable reasons:**
+       ```bash
+       jq -r '.[] | select(.disabled == true) | {email: .email, reason: .disabled_reason}' \
+         ~/.antigravity_tools/accounts/index.json
+       ```
+
+    2. **Look for common patterns:**
+       ```bash
+       grep "invalid_grant\|403\|VALIDATION_REQUIRED" ~/.antigravity_tools/logs/app.log | tail -30
+       ```
+
+    3. **Verify OAuth tokens are valid:**
+       ```bash
+       # Check token expiry
+       jq '.expires_at' ~/.antigravity_tools/accounts/<account-id>.json
+       
+       # Current time in Unix timestamp
+       date +%s
+       ```
+
+    4. **Test manual token refresh:**
+       - Use UI to refresh specific account
+       - Check logs for refresh errors
+  </Accordion>
+
+  <Accordion title="Proxy pool not working">
+    **Diagnostic steps:**
+
+    1. **Check proxy pool configuration:**
+       ```bash
+       jq '.proxy.proxy_pool' ~/.antigravity_tools/gui_config.json
+       ```
+
+    2. **Test proxy connectivity:**
+       ```bash
+       # Test SOCKS5 proxy
+       curl -x socks5://user:pass@proxy:port https://api.ipify.org
+       
+       # Test HTTP proxy
+       curl -x http://user:pass@proxy:port https://api.ipify.org
+       ```
+
+    3. **Check proxy health status:**
+       - Settings → Proxy Pool
+       - Look for unhealthy proxies
+       - Review health check logs
+
+    4. **Monitor proxy usage in logs:**
+       ```bash
+       grep -i "proxy" ~/.antigravity_tools/logs/app.log | tail -20
+       ```
+  </Accordion>
+
+  <Accordion title="Model mapping not working">
+    **Diagnostic steps:**
+
+    1. **Verify model override configuration:**
+       ```bash
+       jq '.proxy.model_overrides' ~/.antigravity_tools/gui_config.json
+       ```
+
+    2. **Check debug console for mapping decisions:**
+       - Enable Debug Console
+       - Look for "Model mapped from X to Y" messages
+
+    3. **Test with specific model:**
+       ```bash
+       curl http://127.0.0.1:8045/v1/chat/completions \
+         -H "Authorization: Bearer sk-antigravity" \
+         -H "Content-Type: application/json" \
+         -d '{
+           "model": "gpt-4",
+           "messages": [{"role": "user", "content": "test"}]
+         }'
+       ```
+
+    4. **Review model config:**
+       - Settings → Model Router
+       - Ensure mappings are saved
+       - Check for conflicting rules
+  </Accordion>
+</AccordionGroup>
+
+## Reporting Issues
+
+When reporting issues on GitHub, include:
+
+### Essential Information
+
+1. **Application version:**
+   - Settings → About → Version number
+
+2. **Operating system:**
+   - macOS version / Linux distribution / Windows version
+
+3. **Deployment method:**
+   - Desktop app / Docker / Headless
+
+4. **Relevant logs:**
+   ```bash
+   # Last 100 lines with errors
+   grep -E "ERROR|WARN" ~/.antigravity_tools/logs/app.log | tail -100
+   ```
+
+5. **Configuration (sanitized):**
+   ```bash
+   # Remove sensitive data before sharing
+   jq 'del(.proxy.api_key, .proxy.admin_password, .accounts)' \
+     ~/.antigravity_tools/gui_config.json
+   ```
+
+6. **Steps to reproduce:**
+   - What you did
+   - What you expected
+   - What actually happened
+
+### Creating a Debug Log Bundle
+
+```bash
+# Create debug bundle
+mkdir debug-bundle
+cp ~/.antigravity_tools/logs/app.log debug-bundle/
+cp ~/.antigravity_tools/gui_config.json debug-bundle/config.json
+
+# Sanitize sensitive data
+jq 'del(.proxy.api_key, .proxy.admin_password)' debug-bundle/config.json > debug-bundle/config-safe.json
+rm debug-bundle/config.json
+
+# Create archive
+tar -czf antigravity-debug-$(date +%Y%m%d).tar.gz debug-bundle/
+
+# Attach to GitHub issue
+```
+
+## Performance Optimization
+
+### Reduce Log Size
+
+```bash
+# Increase cleanup frequency (modify logger.rs)
+# Change retention from 7 to 3 days
+
+# Or manually clean more frequently
+find ~/.antigravity_tools/logs/ -name "*.log" -mtime +3 -delete
+```
+
+### Optimize Database
+
+```bash
+# Vacuum security database to reclaim space
+sqlite3 ~/.antigravity_tools/security.db "VACUUM;"
+
+# Clear old access logs (older than 30 days)
+sqlite3 ~/.antigravity_tools/security.db "DELETE FROM access_logs WHERE timestamp < strftime('%s', 'now', '-30 days');"
+```
+
+### Reduce Memory Usage
+
+1. **Disable background refresh:**
+   - Settings → Background Tasks
+   - Turn off auto-refresh
+
+2. **Reduce token cache:**
+   - Fewer active accounts = less memory for quota cache
+
+3. **Disable smart warmup:**
+   - Settings → Smart Warmup
+   - Toggle off if not needed
+
+## Related Resources
+
+- [Common Issues](/troubleshooting/common-issues) - Frequently encountered problems
+- [Account Errors](/troubleshooting/account-errors) - Authentication and authorization errors
+- [GitHub Issues](https://github.com/lbjlaq/Antigravity-Manager/issues) - Report bugs and request features

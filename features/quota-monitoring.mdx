@@ -1,0 +1,377 @@
+---
+title: Quota Monitoring
+description: Real-time quota tracking and intelligent account management
+---
+
+## Overview
+
+Antigravity Manager provides comprehensive quota monitoring across all your Google AI accounts, tracking usage for Gemini Pro, Flash, Claude, and image generation models.
+
+## Dashboard Statistics
+
+The Dashboard displays aggregated quota information:
+
+```typescript
+// From src/pages/Dashboard.tsx:36
+const stats = useMemo(() => {
+  const getGeminiProQuota = (a: Account) =>
+    (a.quota?.models || [])
+      .filter(m =>
+        m.name.toLowerCase() === 'gemini-3-pro-high' ||
+        m.name.toLowerCase() === 'gemini-3-pro-low' ||
+        m.name.toLowerCase() === 'gemini-3.1-pro-high' ||
+        m.name.toLowerCase() === 'gemini-3.1-pro-low'
+      )
+      .reduce((best, model) => Math.max(best, model.percentage || 0), 0);
+  
+  return {
+    total: accounts.length,
+    avgGemini: Math.round(geminiQuotas.reduce((a, b) => a + b, 0) / geminiQuotas.length),
+    avgGeminiImage: Math.round(imageQuotas.reduce((a, b) => a + b, 0) / imageQuotas.length),
+    avgClaude: Math.round(claudeQuotas.reduce((a, b) => a + b, 0) / claudeQuotas.length),
+    lowQuota: accounts.filter(a => gemini < 20 || claude < 20).length
+  };
+}, [accounts]);
+```
+
+### Key Metrics
+
+<Tabs>
+  <Tab title="Average Gemini Quota">
+    Displays the average remaining quota across all Gemini Pro models:
+    
+    ```typescript
+    const avgGemini = geminiQuotas.length > 0
+      ? Math.round(geminiQuotas.reduce((a, b) => a + b, 0) / geminiQuotas.length)
+      : 0;
+    ```
+    
+    <Note>
+    Takes the highest quota among Pro-High and Pro-Low for each account.
+    </Note>
+  </Tab>
+  
+  <Tab title="Average Image Quota">
+    Tracks Imagen 3 generation quota:
+    
+    ```typescript
+    const geminiImageQuotas = accounts
+      .map(a => a.quota?.models.find(m =>
+        m.name.toLowerCase() === 'gemini-3.1-flash-image' ||
+        m.name.toLowerCase() === 'gemini-3-pro-image'
+      )?.percentage || 0)
+      .filter(q => q > 0);
+    ```
+  </Tab>
+  
+  <Tab title="Average Claude Quota">
+    Monitors Claude Sonnet quota availability:
+    
+    ```typescript
+    const claudeQuotas = accounts
+      .map(a => a.quota?.models.find(m => 
+        m.name.toLowerCase() === 'claude-sonnet-4-6'
+      )?.percentage || 0)
+      .filter(q => q > 0);
+    ```
+  </Tab>
+</Tabs>
+
+## Manual Quota Refresh
+
+### Single Account Refresh
+
+Refresh quota for a specific account:
+
+```typescript
+// From src/pages/Accounts.tsx:349
+const handleRefresh = async (accountId: string) => {
+  setRefreshingIds(prev => new Set(prev).add(accountId));
+  try {
+    await refreshQuota(accountId);
+    showToast(t('common.success'), 'success');
+  } finally {
+    setRefreshingIds(prev => {
+      const next = new Set(prev);
+      next.delete(accountId);
+      return next;
+    });
+  }
+};
+```
+
+### Batch Refresh
+
+Refresh multiple accounts at once:
+
+```rust
+// From src-tauri/src/commands/mod.rs:219
+pub async fn refresh_all_quotas_internal(
+    proxy_state: &ProxyServiceState,
+    app_handle: Option<tauri::AppHandle>,
+) -> Result<RefreshStats, String> {
+    let stats = modules::account::refresh_all_quotas_logic().await?;
+    
+    // Sync to running proxy service
+    let instance_lock = proxy_state.instance.read().await;
+    if let Some(instance) = instance_lock.as_ref() {
+        let _ = instance.token_manager.reload_all_accounts().await;
+    }
+    
+    Ok(stats)
+}
+```
+
+<Steps>
+  <Step title="Select Accounts (Optional)">
+    Select specific accounts to refresh, or refresh all if none selected.
+  </Step>
+  
+  <Step title="Click Refresh Button">
+    Click the **Refresh** button in the toolbar.
+  </Step>
+  
+  <Step title="Confirm Operation">
+    Confirm the batch refresh in the dialog.
+  </Step>
+  
+  <Step title="View Results">
+    Success/failure counts are displayed in a toast notification.
+  </Step>
+</Steps>
+
+## Automatic Quota Sync
+
+Quota data is automatically synchronized when:
+
+1. **Adding new accounts** - Initial quota fetch
+2. **Switching accounts** - Ensures current data
+3. **Proxy requests** - Real-time updates during usage
+4. **Background refresh** - Periodic updates (if enabled)
+
+```rust
+// From src-tauri/src/commands/mod.rs:164
+async fn internal_refresh_account_quota(
+    app: &tauri::AppHandle,
+    account: &mut Account,
+) -> Result<QuotaData, String> {
+    let quota = modules::account::fetch_quota_with_retry(account).await?;
+    modules::update_account_quota(&account.id, quota.clone())?;
+    crate::modules::tray::update_tray_menus(app);
+    Ok(quota)
+}
+```
+
+## Quota Structure
+
+Each account stores detailed quota information:
+
+```typescript
+interface QuotaData {
+  models: ModelQuota[];
+  last_updated: number;
+  subscription_tier?: string;  // "FREE" | "PRO" | "ULTRA"
+  is_forbidden: boolean;
+}
+
+interface ModelQuota {
+  name: string;              // e.g., "gemini-3-flash"
+  percentage: number;        // Remaining quota (0-100)
+  reset_time: string;        // ISO timestamp for next reset
+  max_output_tokens?: number; // Model output limit
+}
+```
+
+## Quota Protection
+
+Automatic protection prevents quota exhaustion:
+
+```rust
+// From src-tauri/src/proxy/token_manager.rs:545
+async fn check_and_protect_quota(
+    &self,
+    account_json: &mut serde_json::Value,
+    account_path: &PathBuf,
+) -> bool {
+    let config = crate::modules::config::load_app_config()?.quota_protection;
+    
+    if !config.enabled {
+        return false;
+    }
+    
+    // Check each monitored model
+    for std_id in &config.monitored_models {
+        let min_pct = group_min_percentage.get(std_id).cloned().unwrap_or(100);
+        
+        if min_pct <= config.threshold_percentage {
+            // Trigger protection
+            self.trigger_quota_protection(
+                account_json,
+                &account_id,
+                account_path,
+                min_pct,
+                config.threshold_percentage,
+                std_id,
+            ).await?;
+        }
+    }
+}
+```
+
+### Protected Model Tracking
+
+Models are individually protected when quota is low:
+
+```rust
+// From src-tauri/src/proxy/token_manager.rs:733
+async fn trigger_quota_protection(
+    &self,
+    account_json: &mut serde_json::Value,
+    account_id: &str,
+    account_path: &PathBuf,
+    current_val: i32,
+    threshold: i32,
+    model_name: &str,
+) -> Result<bool, String> {
+    if account_json.get("protected_models").is_none() {
+        account_json["protected_models"] = serde_json::Value::Array(Vec::new());
+    }
+    
+    let protected_models = account_json["protected_models"].as_array_mut().unwrap();
+    
+    if !protected_models.iter().any(|m| m.as_str() == Some(model_name)) {
+        protected_models.push(serde_json::Value::String(model_name.to_string()));
+        
+        // Persist to disk
+        std::fs::write(account_path, serde_json::to_string_pretty(account_json)?)?;
+        
+        // Trigger reload in TokenManager
+        crate::proxy::server::trigger_account_reload(account_id);
+    }
+    
+    Ok(true)
+}
+```
+
+<Note>
+Quota protection works at the model level, not account level, allowing partial usage.
+</Note>
+
+## Best Account Recommendation
+
+The Dashboard recommends accounts with best quota availability:
+
+```typescript
+// From src/components/dashboard/BestAccounts.tsx
+const sortedAccounts = useMemo(() => {
+  return [...accounts]
+    .filter(a => a.id !== currentAccountId)
+    .sort((a, b) => {
+      const aGemini = getMaxQuota(a, 'gemini');
+      const bGemini = getMaxQuota(b, 'gemini');
+      
+      // Sort by highest quota first
+      return bGemini - aGemini;
+    })
+    .slice(0, 3); // Top 3 recommendations
+}, [accounts, currentAccountId]);
+```
+
+## Quota Display Options
+
+### Compact View
+
+Show only primary models:
+
+```typescript
+// Default: Show Gemini Pro, Flash, and Claude only
+const primaryModels = quota.models.filter(m => 
+  m.name.includes('pro') || 
+  m.name.includes('flash') || 
+  m.name.includes('claude')
+);
+```
+
+### Detailed View
+
+Show all available models including variants:
+
+```typescript
+// Toggle in settings
+const { showAllQuotas, toggleShowAllQuotas } = useConfigStore();
+
+<input
+  type="checkbox"
+  checked={showAllQuotas}
+  onChange={toggleShowAllQuotas}
+/>
+```
+
+## Reset Time Tracking
+
+Quota reset times are displayed in account cards:
+
+```typescript
+// From src/proxy/token_manager.rs:486
+fn extract_earliest_reset_time(&self, account: &serde_json::Value) -> Option<i64> {
+    account.get("quota")
+        .and_then(|q| q.get("models"))
+        .and_then(|m| m.as_array())
+        .and_then(|models| {
+            models.iter()
+                .filter_map(|m| m.get("reset_time").and_then(|t| t.as_str()))
+                .filter_map(|t| chrono::DateTime::parse_from_rfc3339(t).ok())
+                .map(|dt| dt.timestamp())
+                .min()
+        })
+}
+```
+
+<Tip>
+Accounts with earlier reset times are prioritized in smart routing.
+</Tip>
+
+## Error States
+
+### 403 Forbidden
+
+Accounts marked as forbidden are automatically detected:
+
+```typescript
+interface QuotaData {
+  is_forbidden: boolean;  // Account banned or restricted
+}
+```
+
+<Warning>
+Forbidden accounts are excluded from the token pool until manually re-enabled.
+</Warning>
+
+### Validation Blocks
+
+Temporary blocks for verification:
+
+```rust
+// From src-tauri/src/proxy/token_manager.rs:327
+if account.get("validation_blocked").and_then(|v| v.as_bool()).unwrap_or(false) {
+    let block_until = account.get("validation_blocked_until")
+        .and_then(|v| v.as_i64())
+        .unwrap_or(0);
+    
+    let now = chrono::Utc::now().timestamp();
+    
+    if now < block_until {
+        // Still blocked, skip account
+        return Ok(None);
+    } else {
+        // Block expired, clear it
+        account["validation_blocked"] = serde_json::json!(false);
+    }
+}
+```
+
+## Related Features
+
+- [Account Management](/features/account-management) - Add and manage accounts
+- [API Proxy](/features/api-proxy) - Configure proxy settings
+- [Model Routing](/features/model-routing) - Set up routing rules

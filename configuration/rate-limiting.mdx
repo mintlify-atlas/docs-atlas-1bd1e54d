@@ -1,0 +1,274 @@
+---
+title: 'Rate Limiting Configuration'
+description: 'Configure intelligent rate limiting and quota management'
+icon: 'gauge'
+---
+
+## Overview
+
+Antigravity implements intelligent rate limiting with automatic error detection, exponential backoff, and account rotation.
+
+## Rate Limit Detection
+
+The system automatically detects and handles various rate limit scenarios:
+
+### Limit Types
+
+<ParamField path="QuotaExhausted" type="enum">
+  Daily/monthly API quota exhausted
+  
+  **HTTP Status**: 429  
+  **Response Reason**: `QUOTA_EXHAUSTED`  
+  **Location**: `rate_limit.rs:8-9`
+</ParamField>
+
+<ParamField path="RateLimitExceeded" type="enum">
+  Requests per minute (RPM) or tokens per minute (TPM) limit exceeded
+  
+  **HTTP Status**: 429  
+  **Response Reason**: `RATE_LIMIT_EXCEEDED`  
+  **Location**: `rate_limit.rs:11-12`
+</ParamField>
+
+<ParamField path="ModelCapacityExhausted" type="enum">
+  Model temporarily at capacity
+  
+  **HTTP Status**: 429  
+  **Response Reason**: `MODEL_CAPACITY_EXHAUSTED`  
+  **Location**: `rate_limit.rs:13-14`
+</ParamField>
+
+<ParamField path="ServerError" type="enum">
+  Upstream server errors (5xx)
+  
+  **HTTP Status**: 500, 503, 529, 404  
+  **Default Lockout**: 8 seconds (5s for 404)  
+  **Location**: `rate_limit.rs:15-16`
+</ParamField>
+
+## Backoff Configuration
+
+### Circuit Breaker
+
+<ParamField path="circuit_breaker.enabled" type="boolean" default="false">
+  Enable intelligent circuit breaker with exponential backoff
+</ParamField>
+
+<ParamField path="circuit_breaker.backoff_steps" type="array" default="[30, 60, 120, 300, 600]">
+  Exponential backoff steps in seconds for quota exhaustion
+  
+  On repeated failures, the lockout time increases progressively:
+  - 1st failure: 30 seconds
+  - 2nd failure: 60 seconds (1 minute)
+  - 3rd failure: 120 seconds (2 minutes)
+  - 4th failure: 300 seconds (5 minutes)
+  - 5th+ failure: 600 seconds (10 minutes)
+  
+  **Location**: `rate_limit.rs:254-267`
+</ParamField>
+
+### Configuration Example
+
+```json
+{
+  "circuit_breaker": {
+    "enabled": true,
+    "backoff_steps": [60, 300, 1800, 7200]
+  }
+}
+```
+
+This configuration:
+- 1st failure: 60s (1 min)
+- 2nd failure: 300s (5 min)
+- 3rd failure: 1800s (30 min)
+- 4th+ failure: 7200s (2 hours)
+
+## Smart Recovery
+
+### Automatic Retry Detection
+
+The system automatically parses retry-after information from API responses:
+
+1. **Retry-After Header**: Standard HTTP header (in seconds)
+2. **JSON Response**: Google-specific `quotaResetDelay` field
+3. **Text Patterns**: Various error message formats
+
+**Location**: `rate_limit.rs:420-500`
+
+### Time Format Support
+
+Supports multiple time duration formats:
+
+- **ISO 8601**: `2026-01-08T17:00:00Z`
+- **Duration**: `2h1m1s`, `1h30m`, `42s`, `510.790ms`
+- **Seconds**: `60`, `120`
+
+**Location**: `rate_limit.rs:375-418`
+
+### Failure Count Expiry
+
+<ParamField path="FAILURE_COUNT_EXPIRY_SECONDS" type="number" default="3600">
+  Time in seconds after which failure count resets to 0
+  
+  If an account has no failures for 1 hour, the backoff counter resets.
+  
+  **Location**: `rate_limit.rs:42`
+</ParamField>
+
+## Account Scheduling
+
+### Sticky Session Configuration
+
+<ParamField path="scheduling.mode" type="enum" default="Balance">
+  Account selection strategy
+  
+  **Options**:
+  - `Balance`: Distribute load evenly across accounts
+  - `Sticky`: Pin sessions to specific accounts
+</ParamField>
+
+<ParamField path="scheduling.max_wait_seconds" type="number" default="60">
+  Maximum time to wait for rate-limited account
+  
+  If all accounts are rate-limited and the shortest wait time exceeds this value, the system triggers optimistic reset.
+  
+  **Location**: `rate_limit.rs:70-76`
+</ParamField>
+
+### Optimistic Reset
+
+When all accounts are rate-limited with short wait times, the system may clear all rate limit records to resolve timing race conditions:
+
+**Trigger Conditions**:
+- All available accounts are rate-limited
+- Shortest remaining wait time < `max_wait_seconds`
+
+**Location**: `rate_limit.rs:557-561`
+
+## Model-Level Rate Limiting
+
+Supports fine-grained rate limiting per model:
+
+<ParamField path="model" type="string" optional>
+  Associate rate limit with specific model
+  
+  When specified, lockout only affects the specific model, allowing other models on the same account to continue.
+  
+  **Location**: `rate_limit.rs:35-38`
+</ParamField>
+
+### Example: Model Isolation
+
+```rust
+// Account locked for "gemini-3-flash" only
+tracker.set_lockout_until(
+    "account_123",
+    reset_time,
+    RateLimitReason::QuotaExhausted,
+    Some("gemini-3-flash".to_string())
+);
+
+// Other models on same account remain available
+let is_locked = tracker.is_rate_limited("account_123", Some("gemini-3-pro")); // false
+```
+
+**Location**: `rate_limit.rs:60-67, 115-148`
+
+## Rate Limit Management API
+
+### Check Rate Limit Status
+
+```rust
+let wait_time = tracker.get_remaining_wait(account_id, Some("gemini-3-flash"));
+if wait_time > 0 {
+    println!("Account locked for {} seconds", wait_time);
+}
+```
+
+### Mark Successful Request
+
+```rust
+// Reset failure counter after successful request
+tracker.mark_success(account_id);
+```
+
+**Location**: `rate_limit.rs:94-108`
+
+### Clear Rate Limits
+
+```rust
+// Clear specific account
+tracker.clear(account_id);
+
+// Clear all rate limits (optimistic reset)
+tracker.clear_all();
+```
+
+**Location**: `rate_limit.rs:549-561`
+
+## Advanced Features
+
+### Precise Quota Reset
+
+Instead of exponential backoff, you can set exact lockout times:
+
+```rust
+// Lock until specific time
+tracker.set_lockout_until(
+    account_id,
+    reset_time,  // SystemTime
+    RateLimitReason::QuotaExhausted,
+    None
+);
+
+// Lock until ISO 8601 timestamp
+tracker.set_lockout_until_iso(
+    account_id,
+    "2026-01-08T17:00:00Z",
+    RateLimitReason::QuotaExhausted,
+    None
+);
+```
+
+**Location**: `rate_limit.rs:110-173`
+
+### Safety Buffer
+
+Minimum lockout time of 2 seconds to prevent excessive retries:
+
+```rust
+if retry_seconds < 2 { 
+    retry_seconds = 2; 
+}
+```
+
+**Location**: `rate_limit.rs:224-226`
+
+## Monitoring
+
+Rate limit events are logged with details:
+
+```
+[Thinking-Budget] Global config updated: mode=Auto, custom_value=24576
+账号 acc_123 请求成功，已重置失败计数
+账号 acc_456 已精确锁定到配额刷新时间,剩余 3600 秒
+检测到配额耗尽 (QUOTA_EXHAUSTED)，第3次连续失败，根据配置锁定 1800 秒
+🔄 Optimistic reset: Cleared all 5 rate limit record(s)
+```
+
+## Best Practices
+
+<Note>
+  - Enable circuit breaker for production environments
+  - Set conservative backoff steps for critical applications
+  - Monitor rate limit logs to identify problematic patterns
+  - Use multiple accounts to improve availability
+  - Consider model-level isolation for high-value models
+</Note>
+
+<Warning>
+  **Server Error Handling**: 5xx errors do NOT accumulate in the failure counter to avoid polluting the backoff ladder. They use a fixed 8-second soft backoff.
+  
+  **Location**: `rate_limit.rs:229-250`
+</Warning>

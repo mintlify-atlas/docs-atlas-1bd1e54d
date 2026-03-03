@@ -1,0 +1,303 @@
+---
+title: Common Issues & Solutions
+description: Frequently encountered problems and their solutions
+---
+
+## Overview
+
+This page covers the most common issues users encounter when using Antigravity Manager and provides step-by-step solutions.
+
+## Application Issues
+
+<AccordionGroup>
+  <Accordion title="Application won't start or crashes on launch">
+    **Symptoms:**
+    - Application exits immediately after launch
+    - Black screen or frozen window
+    - Error message on startup
+
+    **Solutions:**
+
+    1. **Check log files** for error messages:
+       ```bash
+       # macOS/Linux
+       ~/.antigravity_tools/logs/app.log
+       
+       # Windows
+       %USERPROFILE%\.antigravity_tools\logs\app.log
+       ```
+
+    2. **Clear application cache:**
+       - Close the application completely
+       - Delete the cache directory:
+         ```bash
+         # macOS/Linux
+         rm -rf ~/.antigravity_tools/cache
+         
+         # Windows
+         rd /s /q %USERPROFILE%\.antigravity_tools\cache
+         ```
+
+    3. **Reset configuration:**
+       <Warning>
+         This will remove all your settings. Back up your `gui_config.json` first.
+       </Warning>
+       
+       ```bash
+       # macOS/Linux
+       mv ~/.antigravity_tools/gui_config.json ~/.antigravity_tools/gui_config.json.bak
+       
+       # Windows
+       move %USERPROFILE%\.antigravity_tools\gui_config.json %USERPROFILE%\.antigravity_tools\gui_config.json.bak
+       ```
+
+    4. **Reinstall the application** using the latest version from [GitHub Releases](https://github.com/lbjlaq/Antigravity-Manager/releases)
+  </Accordion>
+
+  <Accordion title="Unable to connect to API / Proxy not working">
+    **Symptoms:**
+    - Client applications cannot connect to `http://127.0.0.1:8045`
+    - "Connection refused" errors
+    - API requests timeout
+
+    **Solutions:**
+
+    1. **Verify proxy service is running:**
+       - Open Antigravity Manager
+       - Navigate to "API Proxy" page
+       - Check if the service toggle is enabled (green)
+
+    2. **Check port conflicts:**
+       ```bash
+       # macOS/Linux - Check if port 8045 is in use
+       lsof -i :8045
+       
+       # Windows - Check if port 8045 is in use
+       netstat -ano | findstr :8045
+       ```
+
+    3. **Verify firewall settings:**
+       - macOS: System Preferences → Security & Privacy → Firewall
+       - Windows: Windows Defender Firewall → Allow an app
+       - Ensure Antigravity Tools is allowed
+
+    4. **Test the connection:**
+       ```bash
+       curl http://127.0.0.1:8045/health
+       ```
+
+    5. **Check API key configuration:**
+       - Ensure your client is using the correct API key (default: `sk-antigravity`)
+       - Verify the API key matches the one in Settings → API Proxy
+  </Accordion>
+
+  <Accordion title="Accounts keep getting disabled">
+    **Symptoms:**
+    - Accounts automatically marked as "Disabled"
+    - Frequent `invalid_grant` errors in logs
+    - Account shows as forbidden (403)
+
+    **Solutions:**
+
+    1. **Re-authorize the account:**
+       - Go to Accounts page
+       - Click on the disabled account
+       - Click "Delete" to remove the account
+       - Add the account again using OAuth
+
+    2. **Check for token expiry:**
+       - The refresh token may have been revoked
+       - Ensure you're not using the same Google account in multiple instances
+
+    3. **Verify account permissions:**
+       - Ensure the account has access to required Google services
+       - Check if the account requires verification (see [Account Errors](/troubleshooting/account-errors))
+
+    4. **Review proxy settings:**
+       - If using a proxy pool, verify proxy credentials are correct
+       - Check if proxies are working correctly
+
+    See [Account Errors](/troubleshooting/account-errors) for detailed error handling.
+  </Accordion>
+
+  <Accordion title="Model quota showing as 0% but account works">
+    **Symptoms:**
+    - Dashboard shows 0% quota for models
+    - Account can still make requests successfully
+    - Manual refresh doesn't update quota
+
+    **Solutions:**
+
+    1. **Force refresh quota:**
+       - Go to Accounts page
+       - Click "Refresh All" button
+       - Wait for the refresh to complete
+
+    2. **Check account type:**
+       - Free accounts have limited quota that resets frequently
+       - Pro/Ultra accounts have different quota limits
+       - Verify your account tier matches expectations
+
+    3. **Sync account from database:**
+       - Click the sync icon on the account card
+       - This forces a fresh quota fetch from Google
+
+    4. **Clear quota cache:**
+       ```bash
+       # In the application Debug Console
+       # Navigate to Settings → About → Debug Console
+       # Run: Clear quota cache
+       ```
+  </Accordion>
+
+  <Accordion title="Slow performance or high memory usage">
+    **Symptoms:**
+    - Application feels sluggish
+    - High CPU or memory usage
+    - Long delays when switching pages
+
+    **Solutions:**
+
+    1. **Clean up old logs:**
+       - Logs are automatically cleaned after 7 days
+       - Maximum log size is capped at 1GB (512MB after cleanup)
+       - Manually clear logs: Settings → About → Clear Logs
+
+    2. **Reduce refresh intervals:**
+       - Settings → Background Tasks
+       - Increase refresh interval (default: 5 minutes)
+       - Disable auto-refresh if not needed
+
+    3. **Limit active accounts:**
+       - Disable accounts you're not actively using
+       - The token manager caches quota in memory for performance
+
+    4. **Disable smart warmup:**
+       - Settings → Smart Warmup
+       - Toggle off if you don't need preemptive quota checking
+  </Accordion>
+
+  <Accordion title="Docker container won't start">
+    **Symptoms:**
+    - Container exits immediately
+    - "API_KEY not set" error
+    - Cannot access web interface
+
+    **Solutions:**
+
+    1. **Check environment variables:**
+       ```bash
+       # Verify required environment variables are set
+       docker logs antigravity-manager
+       ```
+
+    2. **Ensure API_KEY is set:**
+       ```bash
+       docker run -d --name antigravity-manager \
+         -p 8045:8045 \
+         -e API_KEY=sk-your-api-key \
+         -v ~/.antigravity_tools:/root/.antigravity_tools \
+         lbjlaq/antigravity-manager:latest
+       ```
+
+    3. **Check volume permissions:**
+       ```bash
+       # Ensure the volume directory exists and is writable
+       mkdir -p ~/.antigravity_tools
+       chmod 755 ~/.antigravity_tools
+       ```
+
+    4. **Verify port availability:**
+       ```bash
+       # Check if port 8045 is already in use
+       netstat -tuln | grep 8045
+       ```
+
+    5. **Access the web interface:**
+       - Navigate to `http://localhost:8045`
+       - Login with your API_KEY or WEB_PASSWORD
+  </Accordion>
+</AccordionGroup>
+
+## Update Issues
+
+<AccordionGroup>
+  <Accordion title="Auto-update fails or gets stuck">
+    **Solutions:**
+
+    1. **Check internet connection and proxy settings:**
+       - Settings → Global Upstream Proxy
+       - Ensure proxy allows access to GitHub
+
+    2. **Manual update:**
+       - Download the latest version from [GitHub Releases](https://github.com/lbjlaq/Antigravity-Manager/releases)
+       - Install manually
+
+    3. **For Homebrew users:**
+       ```bash
+       brew upgrade --cask antigravity-tools
+       ```
+
+    4. **Check update logs:**
+       - Look for error messages in `~/.antigravity_tools/logs/app.log`
+       - Search for "update" or "download" keywords
+  </Accordion>
+</AccordionGroup>
+
+## Integration Issues
+
+<AccordionGroup>
+  <Accordion title="Claude Code CLI connection issues">
+    **Symptoms:**
+    - `claude` command cannot connect
+    - Authentication errors
+    - Model not found errors
+
+    **Solutions:**
+
+    1. **Verify environment variables:**
+       ```bash
+       export ANTHROPIC_API_KEY="sk-antigravity"
+       export ANTHROPIC_BASE_URL="http://127.0.0.1:8045"
+       ```
+
+    2. **Check if proxy is running:**
+       - Ensure Antigravity Manager is open
+       - Verify API Proxy is enabled
+
+    3. **Test the connection:**
+       ```bash
+       curl http://127.0.0.1:8045/v1/messages \
+         -H "Content-Type: application/json" \
+         -H "x-api-key: sk-antigravity" \
+         -d '{"model": "claude-sonnet-4-6", "messages": [{"role": "user", "content": "Hello"}]}'
+       ```
+  </Accordion>
+
+  <Accordion title="OpenCode sync fails">
+    **Solutions:**
+
+    1. **Verify OpenCode is installed:**
+       ```bash
+       # Check if opencode is in PATH
+       which opencode
+       ```
+
+    2. **Check custom base URL:**
+       - Settings → External Providers → OpenCode
+       - For Docker: set Custom Manager BaseURL to your Docker host
+
+    3. **Manual configuration:**
+       - Locate `~/.config/opencode/opencode.json`
+       - Add the antigravity-manager provider manually
+
+    4. **Restore from backup:**
+       - If sync corrupts config, restore from `.antigravity.bak`
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+- [macOS Quarantine Issues](/troubleshooting/macos-quarantine) - Fix macOS security blocks
+- [Account Errors](/troubleshooting/account-errors) - Resolve 403, 401, and token errors
+- [Debugging Guide](/troubleshooting/debugging) - Advanced troubleshooting techniques

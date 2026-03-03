@@ -1,0 +1,236 @@
+---
+title: Claude Code CLI integration
+description: Use Antigravity Manager with the official Claude Code CLI for AI-powered coding assistance
+---
+
+## Overview
+
+Antigravity Manager provides seamless integration with the Claude Code CLI, allowing you to use multiple Claude accounts with automatic rotation and quota management.
+
+<Note>
+The Claude Code CLI is the official command-line interface for Claude AI, supporting features like extended thinking, web search, and MCP (Model Context Protocol) tools.
+</Note>
+
+## Prerequisites
+
+<CardGroup cols={2}>
+  <Card title="Antigravity Manager" icon="rocket">
+    Installed and running with at least one active account
+  </Card>
+  <Card title="Claude Code CLI" icon="terminal">
+    Install via: `npm install -g @anthropic-ai/claude-code`
+  </Card>
+</CardGroup>
+
+## Quick start
+
+<Steps>
+  <Step title="Start Antigravity proxy">
+    1. Open Antigravity Manager
+    2. Navigate to **API Proxy** tab
+    3. Enable the proxy server
+    4. Verify the port (default: 8045)
+  </Step>
+
+  <Step title="Configure environment variables">
+    Set the Claude CLI to use Antigravity as the API endpoint:
+
+    ```bash
+    export ANTHROPIC_API_KEY="sk-antigravity"
+    export ANTHROPIC_BASE_URL="http://127.0.0.1:8045"
+    ```
+
+    <Tip>
+    Add these to your `~/.bashrc` or `~/.zshrc` to make them permanent.
+    </Tip>
+  </Step>
+
+  <Step title="Launch Claude Code CLI">
+    Simply run:
+
+    ```bash
+    claude
+    ```
+
+    The CLI will now route all requests through Antigravity Manager with automatic account rotation.
+  </Step>
+</Steps>
+
+## Configuration options
+
+### API Key
+
+The `ANTHROPIC_API_KEY` can be any value when using Antigravity Manager. Common conventions:
+
+- `sk-antigravity` (recommended)
+- `sk-any-value`
+- Your actual Antigravity API key (if authentication is enabled)
+
+### Base URL
+
+<ParamField path="ANTHROPIC_BASE_URL" type="string" required>
+  The base URL for the Antigravity proxy server.
+  
+  **Default**: `http://127.0.0.1:8045`
+  
+  **Remote server**: If running Antigravity on a remote machine, use:
+  ```bash
+  export ANTHROPIC_BASE_URL="http://your-server:8045"
+  ```
+</ParamField>
+
+## Features supported
+
+### Extended thinking
+
+Antigravity automatically converts Claude's thinking mode to Gemini's thinking budget:
+
+```bash
+# Use models with thinking capabilities
+claude --model claude-sonnet-4-6-thinking
+```
+
+The proxy will:
+1. Detect thinking mode requests
+2. Map thinking levels to budget tokens
+3. Handle protocol conversion automatically
+
+### Web search
+
+Claude Code CLI's web search works seamlessly through Antigravity:
+
+```bash
+# Search is automatically enabled
+claude "What are the latest features in Rust 1.75?"
+```
+
+Antigravity will:
+- Inject Google Search tool when needed
+- Return grounding metadata with citations
+- Preserve search result formatting
+
+### MCP tools
+
+Model Context Protocol tools are fully supported:
+
+```bash
+# Use with MCP servers
+claude --mcp-config ./mcp.json
+```
+
+<Note>
+Antigravity includes fuzzy matching for MCP tool names to handle model hallucinations.
+</Note>
+
+## Usage examples
+
+### Basic conversation
+
+```bash
+# Interactive mode
+claude
+
+# Single prompt
+claude "Explain async/await in Rust"
+```
+
+### File operations
+
+```bash
+# Analyze a file
+claude "Review this code" --files src/main.rs
+
+# Generate code
+claude "Create a web server" --output server.rs
+```
+
+### Model selection
+
+```bash
+# Use specific model
+claude --model claude-sonnet-4-6
+
+# Use thinking model
+claude --model claude-sonnet-4-6-thinking
+
+# Via Gemini mapping (configured in Antigravity)
+claude --model gemini-3-flash
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection refused">
+    **Problem**: `Error: connect ECONNREFUSED 127.0.0.1:8045`
+
+    **Solutions**:
+    1. Verify Antigravity proxy is running
+    2. Check the port in **API Proxy** settings
+    3. Ensure no firewall is blocking port 8045
+    4. Try `curl http://127.0.0.1:8045/health` to test connectivity
+  </Accordion>
+
+  <Accordion title="Invalid API key error">
+    **Problem**: `401 Unauthorized` or `Invalid API key`
+
+    **Solutions**:
+    1. Check if authentication is enabled in Antigravity
+    2. If enabled, use the actual API key from **API Proxy** settings
+    3. Verify `ANTHROPIC_API_KEY` environment variable is set
+    4. Try: `echo $ANTHROPIC_API_KEY` to confirm
+  </Accordion>
+
+  <Accordion title="Thinking mode errors">
+    **Problem**: `400 Bad Request` with thinking models
+
+    **Solutions**:
+    1. Ensure you're using Antigravity v4.1.23 or later
+    2. Check that accounts have thinking-capable models
+    3. Review logs in Antigravity for detailed error messages
+    4. Try a non-thinking model to isolate the issue
+  </Accordion>
+
+  <Accordion title="Quota exhausted">
+    **Problem**: Requests failing with quota errors
+
+    **Solutions**:
+    1. Check account quotas in Antigravity **Dashboard**
+    2. Manually refresh account quotas
+    3. Enable **Quota Protection** in settings
+    4. Add more accounts for rotation
+  </Accordion>
+</AccordionGroup>
+
+## Best practices
+
+<CardGroup cols={2}>
+  <Card title="Enable quota protection" icon="shield">
+    Prevent quota exhaustion by enabling automatic protection in Antigravity settings.
+  </Card>
+  
+  <Card title="Use multiple accounts" icon="users">
+    Add multiple Claude accounts for better availability and load distribution.
+  </Card>
+  
+  <Card title="Monitor usage" icon="chart-line">
+    Check the Dashboard regularly to track quota consumption across accounts.
+  </Card>
+  
+  <Card title="Configure model routing" icon="route">
+    Set up custom model mappings to optimize cost vs. performance.
+  </Card>
+</CardGroup>
+
+## Performance tips
+
+1. **Local deployment**: Keep Antigravity on the same machine as Claude CLI for minimal latency
+2. **Batch operations**: Use Claude CLI's batch mode for multiple files
+3. **Model selection**: Use Flash models for quick tasks, Pro/Sonnet for complex reasoning
+4. **Caching**: Antigravity caches quota information to reduce API calls
+
+## Related documentation
+
+- [API Proxy configuration](/features/api-proxy)
+- [Model routing](/features/model-routing)
+- [Quota monitoring](/features/quota-monitoring)
+- [Anthropic API format](/api/anthropic-format)

@@ -1,0 +1,313 @@
+---
+title: Model Routing & Mapping
+description: Configure intelligent model routing and custom mappings for API requests
+---
+
+## Overview
+
+Model routing allows you to map incoming model requests to different backend models. This enables seamless integration with existing tools while leveraging the best available models.
+
+## Custom Mappings
+
+### Adding Mappings
+
+Create custom model mappings in the API Proxy settings:
+
+<Steps>
+  <Step title="Navigate to Model Router">
+    Open **API Proxy** → **Model Router & Mapping**
+  </Step>
+  
+  <Step title="Add Mapping">
+    Select the source model pattern and target model from the dropdowns.
+  </Step>
+  
+  <Step title="Apply Changes">
+    Click **Add Mapping** to save the configuration.
+  </Step>
+</Steps>
+
+```typescript
+// From src/pages/ApiProxy.tsx:462
+const handleMappingUpdate = async (type: 'custom', key: string, value: string) => {
+  const newConfig = { ...appConfig.proxy };
+  newConfig.custom_mapping = { 
+    ...(newConfig.custom_mapping || {}), 
+    [key]: value 
+  };
+  
+  await invoke('update_model_mapping', { config: newConfig });
+  showToast(t('common.saved'), 'success');
+};
+```
+
+### Wildcard Patterns
+
+Use wildcards for flexible routing:
+
+```typescript
+// Example mappings
+{
+  "gpt-4*": "gemini-3.1-pro-high",      // All GPT-4 variants
+  "gpt-4o*": "gemini-3-flash",          // GPT-4o series
+  "claude-3-5-sonnet-*": "claude-sonnet-4-6",  // Claude Sonnet
+  "o1-*": "gemini-3.1-pro-high"         // O1 models
+}
+```
+
+<Note>
+Wildcard matching is case-insensitive and uses suffix/prefix matching.
+</Note>
+
+## Preset Configurations
+
+Antigravity includes several built-in presets for common use cases:
+
+### Default Preset
+
+Balanced performance and compatibility:
+
+```typescript
+// From src/pages/ApiProxy.tsx:513
+{
+  id: 'default',
+  mappings: {
+    "gpt-4*": "gemini-3.1-pro-high",
+    "gpt-4o*": "gemini-3-flash",
+    "gpt-3.5*": "gemini-2.5-flash",
+    "o1-*": "gemini-3.1-pro-high",
+    "claude-3-5-sonnet-*": "claude-sonnet-4-6",
+    "claude-3-opus-*": "claude-opus-4-6-thinking",
+    "claude-haiku-*": "gemini-2.5-flash"
+  }
+}
+```
+
+### Performance Preset
+
+Maximize response quality:
+
+```typescript
+// From src/pages/ApiProxy.tsx:526
+{
+  id: 'performance',
+  mappings: {
+    "gpt-4*": "claude-opus-4-6-thinking",
+    "gpt-4o*": "claude-sonnet-4-6",
+    "gpt-3.5*": "gemini-3-flash",
+    "o1-*": "claude-opus-4-6-thinking",
+    "claude-3-5-sonnet-*": "claude-sonnet-4-6",
+    "claude-haiku-*": "claude-sonnet-4-6"
+  }
+}
+```
+
+### Cost-Effective Preset
+
+Optimize for quota consumption:
+
+```typescript
+// From src/pages/ApiProxy.tsx:544
+{
+  id: 'cost-effective',
+  mappings: {
+    "gpt-4*": "gemini-3-flash",
+    "gpt-4o*": "gemini-2.5-flash",
+    "gpt-3.5*": "gemini-2.5-flash",
+    "o1-*": "gemini-3-flash",
+    "claude-3-5-sonnet-*": "gemini-3-flash",
+    "claude-3-opus-*": "gemini-3-flash",
+    "claude-haiku-*": "gemini-2.5-flash"
+  }
+}
+```
+
+### Applying Presets
+
+```typescript
+// From src/pages/ApiProxy.tsx:641
+const handleApplyPresets = async () => {
+  const selectedPresetData = presetOptions.find(p => p.id === selectedPreset);
+  if (!selectedPresetData) return;
+  
+  const newConfig = {
+    ...appConfig.proxy,
+    custom_mapping: { 
+      ...appConfig.proxy.custom_mapping, 
+      ...selectedPresetData.mappings 
+    }
+  };
+  
+  await invoke('update_model_mapping', { config: newConfig });
+};
+```
+
+<Tip>
+Presets merge with existing custom mappings without overwriting unrelated entries.
+</Tip>
+
+## Custom Presets
+
+Save your current mappings as a reusable preset:
+
+<Steps>
+  <Step title="Configure Mappings">
+    Set up your desired model mappings in the router.
+  </Step>
+  
+  <Step title="Open Preset Manager">
+    Click **Save as Preset** in the Model Router section.
+  </Step>
+  
+  <Step title="Name Your Preset">
+    Enter a descriptive name and optional description.
+  </Step>
+  
+  <Step title="Save">
+    Click **Save Preset** to add it to your collection.
+  </Step>
+</Steps>
+
+```typescript
+// From src/pages/ApiProxy.tsx:606
+const handleSaveCurrentAsPreset = () => {
+  const newPreset: CustomPreset = {
+    id: `custom_${Date.now()}`,
+    name: newPresetName,
+    description: t('proxy.router.custom_preset_desc'),
+    mappings: { ...appConfig.proxy.custom_mapping }
+  };
+  
+  const updatedPresets = [...customPresets, newPreset];
+  localStorage.setItem('antigravity_custom_presets', JSON.stringify(updatedPresets));
+};
+```
+
+## Dynamic Model Forwarding
+
+Automatic forwarding for deprecated models:
+
+```rust
+// From src-tauri/src/proxy/token_manager.rs:511
+if let Some(rules) = account.get("quota")
+    .and_then(|q| q.get("model_forwarding_rules"))
+    .and_then(|r| r.as_object()) 
+{
+    for (k, v) in rules {
+        if let Some(new_model) = v.as_str() {
+            update_dynamic_forwarding_rules(
+                k.to_string(),
+                new_model.to_string()
+            );
+        }
+    }
+}
+```
+
+<Note>
+Dynamic forwarding rules are automatically synchronized from account quota data.
+</Note>
+
+## Tiered Routing
+
+Intelligent routing based on account tiers:
+
+```rust
+// From src-tauri/src/proxy/token_manager.rs:1055
+tokens_snapshot.sort_by(|a, b| {
+    let tier_priority = |tier: &Option<String>| {
+        let t = tier.as_deref().unwrap_or("").to_lowercase();
+        if t.contains("ultra") { 0 }
+        else if t.contains("pro") { 1 }
+        else if t.contains("free") { 2 }
+        else { 3 }
+    };
+    
+    tier_priority(&a.subscription_tier)
+        .cmp(&tier_priority(&b.subscription_tier))
+});
+```
+
+The routing system prioritizes:
+
+1. **Ultra Accounts**: Highest tier, best quota resets
+2. **Pro Accounts**: Mid-tier with good quotas
+3. **Free Accounts**: Basic tier, limited quotas
+
+## Background Request Detection
+
+Automatic downgrading for background tasks:
+
+```typescript
+// Detect background requests from tools like Claude CLI
+// and route them to Flash models to preserve Pro/Ultra quota
+const isBackgroundRequest = detectBackgroundTask(request);
+if (isBackgroundRequest) {
+  targetModel = "gemini-3-flash"; // Downgrade to Flash
+}
+```
+
+<Warning>
+Background task detection is based on request patterns and may not catch all cases.
+</Warning>
+
+## Model Normalization
+
+Standardize model identifiers:
+
+```rust
+// Example normalization rules
+"gemini-3-pro-high" → "gemini-3.1-pro-high"
+"gemini-3-pro-low" → "gemini-3.1-pro-low"
+"claude-sonnet-4-5" → "claude-sonnet-4-6"
+```
+
+## Quota Protection Integration
+
+Model routing respects quota protection settings:
+
+```rust
+// From src-tauri/src/proxy/token_manager.rs:1184
+let is_quota_protected = quota_protection_enabled
+    && token.protected_models.contains(&normalized_target);
+
+if is_quota_protected {
+    // Skip this account for the requested model
+    continue;
+}
+```
+
+## Resetting Mappings
+
+Reset all custom mappings to defaults:
+
+```typescript
+// From src/pages/ApiProxy.tsx:486
+const executeResetMapping = async () => {
+  const newConfig = {
+    ...appConfig.proxy,
+    custom_mapping: {}
+  };
+  
+  await invoke('update_model_mapping', { config: newConfig });
+  showToast(t('common.success'), 'success');
+};
+```
+
+<Warning>
+Resetting mappings will remove all custom and preset configurations.
+</Warning>
+
+## Best Practices
+
+1. **Use Wildcards Wisely**: Pattern `gpt-4*` catches all GPT-4 variants
+2. **Test Mappings**: Verify mappings work with your specific tools
+3. **Save Presets**: Save working configurations before experimenting
+4. **Monitor Quotas**: Check quota usage after changing mappings
+5. **Document Custom Presets**: Add descriptions to remember mapping purposes
+
+## Related Features
+
+- [API Proxy](/features/api-proxy) - Configure proxy settings
+- [Quota Monitoring](/features/quota-monitoring) - Track model usage
+- [Account Management](/features/account-management) - Manage accounts

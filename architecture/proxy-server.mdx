@@ -1,0 +1,460 @@
+---
+title: Axum Proxy Server Architecture
+description: Detailed architecture of the Axum-based proxy server
+---
+
+## Overview
+
+The Antigravity proxy server is built on **Axum 0.7**, a modern, ergonomic web framework for Rust. It handles all incoming API requests, manages authentication, routes to appropriate handlers, and communicates with upstream AI services.
+
+## Server Structure
+
+### Core Components
+
+```rust
+pub struct AxumServer {
+    shutdown_tx: Arc<Mutex<Option<oneshot::Sender<()>>>>,
+    custom_mapping: Arc<RwLock<HashMap<String, String>>>,
+    proxy_state: Arc<RwLock<UpstreamProxyConfig>>,
+    upstream: Arc<UpstreamClient>,
+    security_state: Arc<RwLock<ProxySecurityConfig>>,
+    token_manager: Arc<TokenManager>,
+    proxy_pool_manager: Arc<ProxyPoolManager>,
+    // ... more state
+}
+```
+
+### Application State
+
+All request handlers share immutable access to the application state:
+
+```rust
+pub struct AppState {
+    pub token_manager: Arc<TokenManager>,
+    pub custom_mapping: Arc<RwLock<HashMap<String, String>>>,
+    pub upstream: Arc<UpstreamClient>,
+    pub security: Arc<RwLock<ProxySecurityConfig>>,
+    pub monitor: Arc<ProxyMonitor>,
+    pub experimental: Arc<RwLock<ExperimentalConfig>>,
+    pub account_service: Arc<AccountService>,
+    pub cloudflared_state: Arc<CloudflaredState>,
+    pub is_running: Arc<RwLock<bool>>,
+    pub port: u16,
+    // ...
+}
+```
+
+## Server Startup
+
+**Location:** `src-tauri/src/proxy/server.rs:293`
+
+```rust
+pub async fn start(
+    host: String,
+    port: u16,
+    token_manager: Arc<TokenManager>,
+    custom_mapping: HashMap<String, String>,
+    // ... more params
+) -> Result<(Self, JoinHandle<()>), String>
+```
+
+**Startup Sequence:**
+
+1. **Initialize shared state** - Wrap all config in `Arc<RwLock<_>>`
+2. **Create proxy pool** - Initialize connection pool manager
+3. **Build routes** - Set up all API endpoints
+4. **Apply middleware** - Add CORS, auth, monitoring layers
+5. **Bind TCP listener** - Listen on `{host}:{port}`
+6. **Spawn server task** - Run in background Tokio task
+7. **Return handle** - Allow graceful shutdown
+
+### Listening Address
+
+```rust
+let addr = format!("{}:{}", host, port);
+let listener = tokio::net::TcpListener::bind(&addr).await
+    .map_err(|e| format!("Failed to bind {}: {}", addr, e))?;
+```
+
+**Default Configuration:**
+- **Desktop Mode:** `127.0.0.1:8045` (localhost only)
+- **Headless Mode:** `0.0.0.0:8045` (LAN access)
+
+## Routing Architecture
+
+### Route Structure
+
+The server defines two main route groups:
+
+#### 1. Proxy Routes (AI APIs)
+
+**Location:** `src-tauri/src/proxy/server.rs:372`
+
+Handles all AI API requests with optional authentication:
+
+```rust
+let proxy_routes = Router::new()
+    // Health checks
+    .route("/health", get(health_check_handler))
+    .route("/healthz", get(health_check_handler))
+    
+    // OpenAI Protocol
+    .route("/v1/models", get(handlers::openai::handle_list_models))
+    .route("/v1/chat/completions", post(handlers::openai::handle_chat_completions))
+    .route("/v1/completions", post(handlers::openai::handle_completions))
+    .route("/v1/responses", post(handlers::openai::handle_completions))  // Codex CLI
+    .route("/v1/images/generations", post(handlers::openai::handle_images_generations))
+    .route("/v1/audio/transcriptions", post(handlers::audio::handle_audio_transcription))
+    
+    // Claude Protocol
+    .route("/v1/messages", post(handlers::claude::handle_messages))
+    .route("/v1/messages/count_tokens", post(handlers::claude::handle_count_tokens))
+    
+    // Gemini Protocol (Native)
+    .route("/v1beta/models", get(handlers::gemini::handle_list_models))
+    .route("/v1beta/models/:model", get(handlers::gemini::handle_get_model)
+                                     .post(handlers::gemini::handle_generate))
+    
+    // Middleware stack
+    .layer(monitor_middleware)
+    .layer(auth_middleware)
+    .layer(ip_filter_middleware);
+```
+
+#### 2. Admin Routes (Management API)
+
+**Location:** `src-tauri/src/proxy/server.rs:455`
+
+Management endpoints with **forced authentication**:
+
+```rust
+let admin_routes = Router::new()
+    // Account management
+    .route("/accounts", get(admin_list_accounts).post(admin_add_account))
+    .route("/accounts/:accountId", delete(admin_delete_account))
+    .route("/accounts/switch", post(admin_switch_account))
+    
+    // Proxy control
+    .route("/proxy/start", post(admin_start_proxy_service))
+    .route("/proxy/stop", post(admin_stop_proxy_service))
+    .route("/proxy/stats", get(admin_get_proxy_stats))
+    
+    // Logs & monitoring
+    .route("/logs", get(admin_get_proxy_logs_filtered))
+    .route("/stats/token/summary", get(admin_get_token_stats_summary))
+    
+    // Security
+    .route("/security/logs", get(admin_get_ip_access_logs))
+    .route("/security/blacklist", get(admin_get_ip_blacklist))
+    
+    // Forced authentication
+    .layer(admin_auth_middleware);
+```
+
+### Full Application
+
+```rust
+let app = Router::new()
+    .nest("/api", admin_routes)      // Admin at /api/*
+    .merge(proxy_routes)              // AI APIs at root
+    .route("/auth/callback", get(handle_oauth_callback))  // Public OAuth
+    .layer(service_status_middleware)
+    .layer(cors_layer())
+    .layer(DefaultBodyLimit::max(100 * 1024 * 1024))  // 100MB
+    .with_state(state);
+```
+
+## Middleware Stack
+
+### Execution Order (Onion Model)
+
+Axum middleware executes in **reverse order** (outside-in for requests, inside-out for responses):
+
+```
+Request Flow:
+  service_status_middleware
+    → CORS layer
+      → ip_filter_middleware
+        → auth_middleware
+          → monitor_middleware
+            → handler
+
+Response Flow:
+  handler
+    → monitor_middleware
+      → auth_middleware
+        → ip_filter_middleware
+          → CORS layer
+            → service_status_middleware
+```
+
+### 1. Service Status Middleware
+
+**Purpose:** Check if proxy service is running
+
+```rust
+async fn service_status_middleware(
+    State(state): State<AppState>,
+    request: Request<Body>,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let is_running = *state.is_running.read().await;
+    
+    if !is_running && !is_exempt_path(&request.uri().path()) {
+        return Err(StatusCode::SERVICE_UNAVAILABLE);
+    }
+    
+    Ok(next.run(request).await)
+}
+```
+
+### 2. CORS Layer
+
+**Purpose:** Enable cross-origin requests for Web UI
+
+```rust
+pub fn cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(AllowOrigin::any())
+        .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::PATCH])
+        .allow_headers([AUTHORIZATION, CONTENT_TYPE, "x-api-key"])
+}
+```
+
+### 3. IP Filter Middleware
+
+**Purpose:** Enforce whitelist/blacklist
+
+```rust
+async fn ip_filter_middleware(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    State(state): State<AppState>,
+    request: Request<Body>,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let security = state.security.read().await;
+    let client_ip = addr.ip().to_string();
+    
+    if security.is_ip_blocked(&client_ip) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    
+    Ok(next.run(request).await)
+}
+```
+
+### 4. Authentication Middleware
+
+**Purpose:** Validate API key based on `auth_mode`
+
+```rust
+async fn auth_middleware(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    mut request: Request<Body>,
+    next: Next,
+) -> Result<Response, StatusCode> {
+    let security = state.security.read().await;
+    
+    // Check if auth is required for this path
+    if should_skip_auth(&request.uri().path(), &security.auth_mode) {
+        return Ok(next.run(request).await);
+    }
+    
+    // Extract API key from headers
+    let api_key = extract_api_key(&headers)?;
+    
+    // Validate against config or user tokens
+    let identity = validate_api_key(api_key, &state).await?;
+    
+    // Inject identity into request extensions
+    request.extensions_mut().insert(identity);
+    
+    Ok(next.run(request).await)
+}
+```
+
+### 5. Monitor Middleware
+
+**Purpose:** Log requests and collect metrics
+
+```rust
+async fn monitor_middleware(
+    State(state): State<AppState>,
+    request: Request<Body>,
+    next: Next,
+) -> Response {
+    let start = Instant::now();
+    let method = request.method().clone();
+    let uri = request.uri().clone();
+    
+    let response = next.run(request).await;
+    
+    let latency = start.elapsed();
+    state.monitor.record_request(method, uri, response.status(), latency);
+    
+    response
+}
+```
+
+## Request Handlers
+
+Handlers are organized by protocol:
+
+### OpenAI Protocol
+
+**Location:** `src-tauri/src/proxy/handlers/openai.rs`
+
+```rust
+pub async fn handle_chat_completions(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(payload): Json<OpenAIChatRequest>,
+) -> Result<Response, AppError> {
+    // 1. Extract model from request
+    let model = payload.model.clone();
+    
+    // 2. Apply custom mapping
+    let mapped_model = apply_model_mapping(model, &state).await;
+    
+    // 3. Get account token
+    let (account_id, access_token, project_id, ..) = 
+        state.token_manager.get_token(
+            "gemini",
+            false,
+            extract_session_id(&headers),
+            &mapped_model,
+        ).await?;
+    
+    // 4. Convert to upstream format
+    let upstream_request = convert_openai_to_gemini(payload, &mapped_model)?;
+    
+    // 5. Make upstream request
+    let response = state.upstream.request(
+        &access_token,
+        &project_id,
+        upstream_request,
+    ).await?;
+    
+    // 6. Convert response back to OpenAI format
+    let openai_response = convert_gemini_to_openai(response)?;
+    
+    Ok(Json(openai_response).into_response())
+}
+```
+
+### Claude Protocol
+
+**Location:** `src-tauri/src/proxy/handlers/claude.rs`
+
+Similar structure with Claude-specific request/response mapping.
+
+### Gemini Protocol
+
+**Location:** `src-tauri/src/proxy/handlers/gemini.rs`
+
+Direct passthrough with minimal transformation.
+
+## Upstream Client
+
+**Purpose:** Manage HTTP requests to Google/Anthropic APIs
+
+```rust
+pub struct UpstreamClient {
+    client: Arc<RwLock<Client>>,           // Standard client
+    rquest_client: Arc<RwLock<RquestClient>>,  // JA3 spoofing client
+    proxy_config: Arc<RwLock<UpstreamProxyConfig>>,
+    user_agent_override: Arc<RwLock<Option<String>>>,
+}
+```
+
+### Client Selection
+
+- **Standard Client (reqwest)** - Default for most requests
+- **JA3 Client (rquest)** - For fingerprint spoofing to bypass bot detection
+
+### Connection Pooling
+
+```rust
+impl UpstreamClient {
+    pub fn new(
+        proxy_config: Option<UpstreamProxyConfig>,
+        proxy_pool: Option<Arc<ProxyPoolManager>>,
+    ) -> Self {
+        let client = ClientBuilder::new()
+            .pool_max_idle_per_host(10)
+            .pool_idle_timeout(Duration::from_secs(90))
+            .timeout(Duration::from_secs(300))
+            .build()
+            .unwrap();
+        // ...
+    }
+}
+```
+
+## Graceful Shutdown
+
+```rust
+impl AxumServer {
+    pub fn stop(&self) {
+        tokio::spawn(async move {
+            let mut lock = self.shutdown_tx.lock().await;
+            if let Some(tx) = lock.take() {
+                let _ = tx.send(());
+                tracing::info!("Server shutdown signal sent");
+            }
+        });
+    }
+}
+```
+
+**Server Loop:**
+
+```rust
+loop {
+    tokio::select! {
+        res = listener.accept() => {
+            // Handle connection
+        }
+        _ = &mut shutdown_rx => {
+            tracing::info!("Server stopping");
+            break;
+        }
+    }
+}
+```
+
+## Hot Reloading
+
+Server supports config hot-reload without restart:
+
+```rust
+impl AxumServer {
+    pub async fn update_mapping(&self, config: &ProxyConfig) {
+        let mut m = self.custom_mapping.write().await;
+        *m = config.custom_mapping.clone();
+    }
+    
+    pub async fn update_proxy(&self, new_config: UpstreamProxyConfig) {
+        let mut proxy = self.proxy_state.write().await;
+        *proxy = new_config;
+    }
+    
+    pub async fn update_security(&self, config: &ProxyConfig) {
+        let mut sec = self.security_state.write().await;
+        *sec = ProxySecurityConfig::from_proxy_config(config);
+    }
+}
+```
+
+## Performance Characteristics
+
+- **Concurrent Connections:** Thousands via Tokio async runtime
+- **Request Latency:** Less than 10ms overhead (excluding upstream)
+- **Memory Usage:** ~50-100MB baseline
+- **Throughput:** Limited by upstream API, not by server
+
+## Related Documentation
+
+- [Token Manager](/architecture/token-manager) - Account selection logic
+- [Model Router](/architecture/model-router) - Request transformation

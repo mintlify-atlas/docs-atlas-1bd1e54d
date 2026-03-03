@@ -1,0 +1,456 @@
+---
+title: Custom client integration
+description: Integrate any AI client or application with Antigravity Manager
+---
+
+## Overview
+
+Antigravity Manager supports any client that implements OpenAI, Anthropic, or Gemini API protocols. This guide covers how to integrate custom clients, applications, and scripts.
+
+## Supported protocols
+
+Antigravity provides three API protocol formats:
+
+<CardGroup cols={3}>
+  <Card title="OpenAI" icon="robot">
+    **Endpoint**: `/v1/chat/completions`
+    
+    **Use for**: Most third-party AI applications
+    
+    **Compatibility**: 99% of AI tools
+  </Card>
+  
+  <Card title="Anthropic" icon="brain">
+    **Endpoint**: `/v1/messages`
+    
+    **Use for**: Claude-native clients
+    
+    **Features**: Full thinking mode support
+  </Card>
+  
+  <Card title="Gemini" icon="sparkles">
+    **Endpoint**: `/v1/models/*:generateContent`
+    
+    **Use for**: Google AI SDK clients
+    
+    **Features**: Native Gemini protocol
+  </Card>
+</CardGroup>
+
+## Basic configuration
+
+All custom clients need three pieces of information:
+
+<Steps>
+  <Step title="Base URL">
+    Point your client to Antigravity's proxy:
+    
+    ```
+    http://127.0.0.1:8045
+    ```
+    
+    For OpenAI-compatible clients, append `/v1`:
+    ```
+    http://127.0.0.1:8045/v1
+    ```
+  </Step>
+
+  <Step title="API Key">
+    Use any value if authentication is disabled:
+    
+    ```
+    sk-antigravity
+    ```
+    
+    Or use your configured API key if authentication is enabled.
+  </Step>
+
+  <Step title="Model name">
+    Choose from available models:
+    
+    - `gemini-3-flash` - Fast, cost-effective
+    - `gemini-3-pro-high` - High quality
+    - `claude-sonnet-4-6` - Balanced
+    - `claude-sonnet-4-6-thinking` - Extended reasoning
+  </Step>
+</Steps>
+
+## OpenAI-compatible clients
+
+### Configuration template
+
+Most OpenAI-compatible clients accept these settings:
+
+```json
+{
+  "baseURL": "http://127.0.0.1:8045/v1",
+  "apiKey": "sk-antigravity",
+  "defaultModel": "gemini-3-flash"
+}
+```
+
+### cURL examples
+
+<Tabs>
+  <Tab title="Basic chat">
+    ```bash
+    curl -X POST http://127.0.0.1:8045/v1/chat/completions \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer sk-antigravity" \
+      -d '{
+        "model": "gemini-3-flash",
+        "messages": [
+          {"role": "user", "content": "Hello!"}
+        ]
+      }'
+    ```
+  </Tab>
+  
+  <Tab title="Streaming">
+    ```bash
+    curl -X POST http://127.0.0.1:8045/v1/chat/completions \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer sk-antigravity" \
+      -d '{
+        "model": "gemini-3-flash",
+        "messages": [
+          {"role": "user", "content": "Write a story"}
+        ],
+        "stream": true
+      }'
+    ```
+  </Tab>
+  
+  <Tab title="Image generation">
+    ```bash
+    curl -X POST http://127.0.0.1:8045/v1/images/generations \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer sk-antigravity" \
+      -d '{
+        "model": "gemini-3-pro-image",
+        "prompt": "A beautiful sunset",
+        "size": "1024x1024",
+        "quality": "hd"
+      }'
+    ```
+  </Tab>
+</Tabs>
+
+## Anthropic/Claude clients
+
+### Configuration
+
+```json
+{
+  "baseURL": "http://127.0.0.1:8045",
+  "apiKey": "sk-antigravity"
+}
+```
+
+### cURL example
+
+```bash
+curl -X POST http://127.0.0.1:8045/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk-antigravity" \
+  -H "anthropic-version: 2023-06-01" \
+  -d '{
+    "model": "claude-sonnet-4-6",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "Hello!"}
+    ]
+  }'
+```
+
+## Gemini clients
+
+### Configuration
+
+```json
+{
+  "baseURL": "http://127.0.0.1:8045",
+  "apiKey": "sk-antigravity"
+}
+```
+
+### cURL example
+
+```bash
+curl -X POST "http://127.0.0.1:8045/v1/models/gemini-3-flash:generateContent" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-antigravity" \
+  -d '{
+    "contents": [{
+      "parts": [{"text": "Hello!"}],
+      "role": "user"
+    }]
+  }'
+```
+
+## Popular applications
+
+### LangChain
+
+```python
+from langchain_openai import ChatOpenAI
+
+llm = ChatOpenAI(
+    base_url="http://127.0.0.1:8045/v1",
+    api_key="sk-antigravity",
+    model="gemini-3-flash"
+)
+
+response = llm.invoke("Hello!")
+print(response.content)
+```
+
+### LlamaIndex
+
+```python
+from llama_index.llms.openai import OpenAI
+
+llm = OpenAI(
+    api_key="sk-antigravity",
+    api_base="http://127.0.0.1:8045/v1",
+    model="gemini-3-flash"
+)
+
+response = llm.complete("Hello!")
+print(response)
+```
+
+### Continue.dev
+
+```json
+// config.json
+{
+  "models": [
+    {
+      "title": "Antigravity Gemini",
+      "provider": "openai",
+      "model": "gemini-3-flash",
+      "apiBase": "http://127.0.0.1:8045/v1",
+      "apiKey": "sk-antigravity"
+    }
+  ]
+}
+```
+
+### Cline (formerly Claude Dev)
+
+```json
+{
+  "apiProvider": "anthropic",
+  "apiKey": "sk-antigravity",
+  "apiUrl": "http://127.0.0.1:8045",
+  "modelId": "claude-sonnet-4-6"
+}
+```
+
+## Authentication modes
+
+Antigravity supports different authentication configurations:
+
+<Tabs>
+  <Tab title="Off (Development)">
+    No authentication required:
+    
+    ```bash
+    curl http://127.0.0.1:8045/v1/chat/completions \
+      -H "Content-Type: application/json" \
+      -d '{...}'
+    ```
+    
+    <Warning>
+    Only use this for local development. Not recommended for production.
+    </Warning>
+  </Tab>
+  
+  <Tab title="Auto (Recommended)">
+    Automatically enables auth for LAN access:
+    
+    ```bash
+    # Local (no auth needed)
+    curl http://127.0.0.1:8045/...
+    
+    # Remote (auth required)
+    curl http://192.168.1.100:8045/... \
+      -H "Authorization: Bearer sk-your-key"
+    ```
+  </Tab>
+  
+  <Tab title="Strict">
+    Always requires authentication:
+    
+    ```bash
+    curl http://127.0.0.1:8045/v1/chat/completions \
+      -H "Authorization: Bearer sk-your-key" \
+      -d '{...}'
+    ```
+  </Tab>
+</Tabs>
+
+## Advanced features
+
+### Model routing
+
+Map client model names to Antigravity models:
+
+```json
+// Antigravity model routing config
+{
+  "mappings": [
+    {
+      "from": "gpt-4",
+      "to": "gemini-3-pro-high"
+    },
+    {
+      "from": "gpt-3.5-turbo",
+      "to": "gemini-3-flash"
+    }
+  ]
+}
+```
+
+Now clients can use familiar names:
+
+```bash
+curl -X POST http://127.0.0.1:8045/v1/chat/completions \
+  -H "Authorization: Bearer sk-antigravity" \
+  -d '{
+    "model": "gpt-4",
+    "messages": [...]
+  }'
+# Automatically routes to gemini-3-pro-high
+```
+
+### Session binding
+
+For multi-turn conversations, enable session binding:
+
+```bash
+curl -X POST http://127.0.0.1:8045/v1/chat/completions \
+  -H "Authorization: Bearer sk-antigravity" \
+  -H "X-Session-ID: my-conversation-123" \
+  -d '{...}'
+```
+
+Antigravity will use the same account for all requests with this session ID.
+
+### Custom headers
+
+Pass custom headers for advanced control:
+
+<ParamField path="X-Preferred-Account" type="string">
+  Use a specific account by email
+</ParamField>
+
+<ParamField path="X-Model-Tier" type="string">
+  Prefer accounts of a specific tier (ultra, pro, free)
+</ParamField>
+
+<ParamField path="X-Session-ID" type="string">
+  Enable sticky sessions for multi-turn conversations
+</ParamField>
+
+## Testing your integration
+
+<Steps>
+  <Step title="Test connectivity">
+    ```bash
+    curl http://127.0.0.1:8045/health
+    ```
+    
+    Expected: `{"status": "ok"}`
+  </Step>
+
+  <Step title="Test basic request">
+    ```bash
+    curl -X POST http://127.0.0.1:8045/v1/chat/completions \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer sk-antigravity" \
+      -d '{
+        "model": "gemini-3-flash",
+        "messages": [
+          {"role": "user", "content": "Say hello"}
+        ]
+      }'
+    ```
+  </Step>
+
+  <Step title="Test streaming">
+    ```bash
+    curl -X POST http://127.0.0.1:8045/v1/chat/completions \
+      -H "Content-Type: application/json" \
+      -H "Authorization: Bearer sk-antigravity" \
+      -d '{
+        "model": "gemini-3-flash",
+        "messages": [{"role": "user", "content": "Count to 10"}],
+        "stream": true
+      }'
+    ```
+  </Step>
+
+  <Step title="Monitor in Antigravity">
+    Check the **Monitor** tab in Antigravity to see request logs and account rotation.
+  </Step>
+</Steps>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="404 Not Found">
+    **Common causes**:
+    - Wrong base URL (forgot `/v1` for OpenAI protocol)
+    - Invalid model name
+    - Incorrect endpoint path
+    
+    **Solution**: Verify endpoint matches protocol format
+  </Accordion>
+
+  <Accordion title="401 Unauthorized">
+    **Common causes**:
+    - Authentication enabled but no key provided
+    - Wrong API key
+    - Missing Authorization header
+    
+    **Solution**: Check auth mode in Antigravity settings
+  </Accordion>
+
+  <Accordion title="429 Rate Limited">
+    **Common causes**:
+    - All accounts exhausted
+    - Quota protection enabled
+    
+    **Solution**: Check dashboard, refresh quotas, add more accounts
+  </Accordion>
+
+  <Accordion title="Connection refused">
+    **Common causes**:
+    - Antigravity proxy not running
+    - Wrong port
+    - Firewall blocking connection
+    
+    **Solution**: Verify proxy is running and accessible
+  </Accordion>
+</AccordionGroup>
+
+## Best practices
+
+1. **Start simple**: Test with cURL before integrating
+2. **Handle errors**: Implement retry logic and error handling
+3. **Use streaming**: For better UX with long responses
+4. **Monitor usage**: Check Antigravity dashboard regularly
+5. **Configure routing**: Map model names for easier migration
+6. **Enable session binding**: For multi-turn conversations
+7. **Test thoroughly**: Verify all features work as expected
+
+## Related documentation
+
+- [OpenAI API format](/api/openai-format)
+- [Anthropic API format](/api/anthropic-format)
+- [Gemini API format](/api/gemini-format)
+- [Authentication](/api/authentication)
+- [Model routing](/configuration/model-mapping)
+- [API Proxy settings](/configuration/proxy-settings)

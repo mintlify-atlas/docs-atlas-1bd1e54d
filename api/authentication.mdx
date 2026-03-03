@@ -1,0 +1,368 @@
+---
+title: API Authentication
+description: Authentication methods and security configuration for Antigravity Manager API
+---
+
+## Overview
+
+Antigravity Manager supports flexible authentication modes to balance security and convenience. You can configure authentication behavior based on whether you're running locally or exposing the API to your network.
+
+## Authentication Modes
+
+The API supports four authentication modes:
+
+### Auto Mode (Recommended)
+
+Automatically selects the appropriate authentication strategy:
+
+- **Local only** (`allow_lan_access: false`): No authentication required
+- **LAN access** (`allow_lan_access: true`): Authentication required for all endpoints except health checks
+
+```json
+{
+  "auth_mode": "auto",
+  "allow_lan_access": false
+}
+```
+
+### Off Mode
+
+Disables all authentication. Suitable for local development only.
+
+```json
+{
+  "auth_mode": "off"
+}
+```
+
+<Warning>
+  Never use `off` mode when exposing the API to your network or the internet.
+</Warning>
+
+### Strict Mode
+
+Requires authentication for all endpoints, including health checks.
+
+```json
+{
+  "auth_mode": "strict",
+  "api_key": "sk-your-api-key"
+}
+```
+
+### All Except Health Mode
+
+Requires authentication for all endpoints except `/health` and `/healthz`.
+
+```json
+{
+  "auth_mode": "all_except_health",
+  "api_key": "sk-your-api-key"
+}
+```
+
+## API Key Authentication
+
+### Setting Your API Key
+
+You can set the API key in three ways:
+
+**1. Configuration File** (`~/.antigravity_tools/gui_config.json`):
+```json
+{
+  "proxy": {
+    "api_key": "sk-antigravity",
+    "auth_mode": "auto"
+  }
+}
+```
+
+**2. Environment Variable**:
+```bash
+export API_KEY="sk-antigravity"
+```
+
+**3. Docker Container**:
+```bash
+docker run -d \
+  -e API_KEY=sk-antigravity \
+  -p 8045:8045 \
+  lbjlaq/antigravity-manager:latest
+```
+
+### Using API Keys in Requests
+
+Include your API key in one of these headers:
+
+#### Authorization Header (Recommended)
+
+```bash
+curl -H "Authorization: Bearer sk-antigravity" \
+  http://127.0.0.1:8045/v1/chat/completions
+```
+
+#### X-API-Key Header
+
+```bash
+curl -H "x-api-key: sk-antigravity" \
+  http://127.0.0.1:8045/v1/messages
+```
+
+#### X-Goog-API-Key Header (Gemini Protocol)
+
+```bash
+curl -H "x-goog-api-key: sk-antigravity" \
+  http://127.0.0.1:8045/v1beta/models
+```
+
+## Admin Password
+
+For enhanced security, you can set a separate password for the Web UI management interface:
+
+### Password Configuration
+
+**Configuration File**:
+```json
+{
+  "proxy": {
+    "api_key": "sk-antigravity",
+    "admin_password": "your-admin-password"
+  }
+}
+```
+
+**Environment Variable (Docker)**:
+```bash
+docker run -d \
+  -e API_KEY=sk-antigravity \
+  -e WEB_PASSWORD=your-admin-password \
+  -p 8045:8045 \
+  lbjlaq/antigravity-manager:latest
+```
+
+### Password Priority
+
+1. **Environment Variable** (`WEB_PASSWORD` or `ABV_WEB_PASSWORD`) - Highest priority
+2. **Configuration File** (`admin_password` in `gui_config.json`)
+3. **Fallback** - Uses `api_key` if no admin password is set
+
+### Authentication Logic
+
+| Scenario | Web Login | API Requests |
+|----------|-----------|-------------|
+| Only `API_KEY` set | Use `API_KEY` | Use `API_KEY` |
+| Both `API_KEY` and `WEB_PASSWORD` set | Use `WEB_PASSWORD` only | Use `API_KEY` |
+
+<Tip>
+  Setting a separate admin password allows you to share the API key with team members while keeping admin access restricted.
+</Tip>
+
+## User Tokens
+
+User tokens provide granular access control for multi-user environments. They allow you to:
+
+- Create separate access tokens for different users or applications
+- Track usage per token
+- Set expiration dates and rate limits
+- Revoke access without changing the main API key
+
+### Creating User Tokens
+
+User tokens can be created via the Web UI or API:
+
+```bash
+curl -X POST http://127.0.0.1:8045/api/user-tokens \
+  -H "Authorization: Bearer your-admin-password" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "username": "alice",
+    "description": "Development token",
+    "expires_at": "2025-12-31T23:59:59Z"
+  }'
+```
+
+### Using User Tokens
+
+Use user tokens the same way as API keys:
+
+```python
+import openai
+
+client = openai.OpenAI(
+    api_key="ut-xxxxxxxxxxxxx",  # User token
+    base_url="http://127.0.0.1:8045/v1"
+)
+```
+
+### Token Validation
+
+When `auth_mode` is enabled, user tokens are validated against:
+
+- **Expiration date** - Token must not be expired
+- **IP restrictions** - Optional IP whitelist/blacklist
+- **Rate limits** - Per-token request limits
+- **Revocation status** - Token must be active
+
+## IP Filtering
+
+Enhance security with IP-based access control:
+
+### IP Whitelist
+
+Allow only specific IP addresses:
+
+```json
+{
+  "proxy": {
+    "security_monitor": {
+      "whitelist": {
+        "enabled": true,
+        "whitelist_priority": true
+      }
+    }
+  }
+}
+```
+
+Add IPs via API:
+```bash
+curl -X POST http://127.0.0.1:8045/api/security/whitelist \
+  -H "Authorization: Bearer your-admin-password" \
+  -d '{"ip": "192.168.1.100", "description": "Office network"}'
+```
+
+### IP Blacklist
+
+Block specific IP addresses:
+
+```json
+{
+  "proxy": {
+    "security_monitor": {
+      "blacklist": {
+        "enabled": true,
+        "block_message": "Access denied"
+      }
+    }
+  }
+}
+```
+
+Add IPs via API:
+```bash
+curl -X POST http://127.0.0.1:8045/api/security/blacklist \
+  -H "Authorization: Bearer your-admin-password" \
+  -d '{"ip": "203.0.113.0", "reason": "Suspicious activity"}'
+```
+
+## Security Best Practices
+
+<AccordionGroup>
+  <Accordion title="Use Auto mode for automatic security">
+    The `auto` authentication mode automatically enables security when you expose the API to your network while keeping local development convenient.
+  </Accordion>
+
+  <Accordion title="Set a strong admin password">
+    Use a separate, strong password for admin access. This allows you to share API keys with team members while protecting administrative functions.
+  </Accordion>
+
+  <Accordion title="Use user tokens for team access">
+    Create individual user tokens for team members instead of sharing the main API key. This enables better access control and usage tracking.
+  </Accordion>
+
+  <Accordion title="Enable IP filtering for public exposure">
+    If exposing the API to the internet, use IP whitelisting to restrict access to known addresses.
+  </Accordion>
+
+  <Accordion title="Rotate credentials regularly">
+    Periodically generate new API keys and user tokens, especially after team member changes.
+  </Accordion>
+
+  <Accordion title="Monitor access logs">
+    Regularly review access logs and security events in the Web UI to detect unauthorized access attempts.
+  </Accordion>
+</AccordionGroup>
+
+## Examples
+
+### OpenAI SDK with Authentication
+
+```python
+import openai
+import os
+
+client = openai.OpenAI(
+    api_key=os.getenv("ANTIGRAVITY_API_KEY", "sk-antigravity"),
+    base_url="http://127.0.0.1:8045/v1"
+)
+
+response = client.chat.completions.create(
+    model="gemini-3-flash",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+```
+
+### Claude Code CLI
+
+```bash
+# Set authentication credentials
+export ANTHROPIC_API_KEY="sk-antigravity"
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8045"
+
+# Run Claude Code CLI
+claude
+```
+
+### cURL with All Headers
+
+```bash
+curl -X POST http://127.0.0.1:8045/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-antigravity" \
+  -d '{
+    "model": "gemini-3-flash",
+    "messages": [
+      {"role": "user", "content": "Explain API authentication"}
+    ]
+  }'
+```
+
+## Troubleshooting
+
+### 401 Unauthorized
+
+**Cause**: Missing or invalid API key
+
+**Solution**:
+- Verify the API key is set correctly
+- Check that you're using the correct header (`Authorization`, `x-api-key`, or `x-goog-api-key`)
+- Ensure the auth mode allows your request
+
+### 403 Forbidden
+
+**Cause**: IP blocked or user token rejected
+
+**Solution**:
+- Check IP whitelist/blacklist settings
+- Verify user token hasn't expired
+- Ensure the user token hasn't been revoked
+
+### Admin Interface Not Accessible
+
+**Cause**: Wrong password when separate admin password is set
+
+**Solution**:
+- Use `WEB_PASSWORD` for admin login, not `API_KEY`
+- Check `gui_config.json` for the correct `admin_password`
+- Review environment variables (they take priority)
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Model Routing" icon="route" href="/configure/model-routing">
+    Configure model mappings and routing rules
+  </Card>
+  <Card title="User Management" icon="users" href="/configure/user-tokens">
+    Set up user tokens and access control
+  </Card>
+</CardGroup>

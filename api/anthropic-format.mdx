@@ -1,0 +1,456 @@
+---
+title: "Anthropic Format - /v1/messages"
+description: "Native Anthropic/Claude protocol endpoint with full thinking and tool support"
+---
+
+## Endpoint
+
+```
+POST http://127.0.0.1:8045/v1/messages
+```
+
+The native Anthropic/Claude protocol endpoint provides full support for Claude Code CLI and advanced features like extended thinking, system prompts, and tool use.
+
+## Authentication
+
+<ParamField header="x-api-key" type="string" required>
+  Anthropic-style API key header
+  ```
+  x-api-key: sk-antigravity
+  ```
+</ParamField>
+
+Alternatively, use standard Bearer authentication:
+
+<ParamField header="Authorization" type="string">
+  Bearer token format
+  ```
+  Authorization: Bearer sk-antigravity
+  ```
+</ParamField>
+
+## Request Headers
+
+<ParamField header="Content-Type" type="string" required>
+  Must be `application/json`
+</ParamField>
+
+<ParamField header="anthropic-version" type="string">
+  API version, e.g., `2023-06-01`
+</ParamField>
+
+<ParamField header="anthropic-beta" type="string">
+  Beta features to enable. Automatically injected:
+  ```
+  anthropic-beta: claude-code-20250219,interleaved-thinking-2025-05-14
+  ```
+</ParamField>
+
+## Request Body
+
+<ParamField body="model" type="string" required>
+  Model identifier:
+  - `claude-sonnet-4-6` - Latest Claude Sonnet 4.6
+  - `claude-sonnet-4-6-thinking` - With extended thinking
+  - `claude-opus-4-6-thinking` - Opus with thinking
+  - `gemini-3-pro-high` - Mapped to Gemini (via protocol conversion)
+</ParamField>
+
+<ParamField body="messages" type="array" required>
+  Conversation messages in Anthropic format
+  
+  <Expandable title="Message Object">
+    <ParamField body="role" type="string" required>
+      Message role: `user` or `assistant`
+    </ParamField>
+    
+    <ParamField body="content" type="string | array" required>
+      Message content. Can be:
+      - String: Plain text
+      - Array: Multi-modal blocks (text, images, tool_use, tool_result)
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="system" type="string | array">
+  System prompt to guide model behavior. Can be:
+  - String: Simple system message
+  - Array: Structured system blocks for advanced control
+</ParamField>
+
+<ParamField body="max_tokens" type="integer" required>
+  Maximum tokens to generate. **Required** for Claude protocol.
+  
+  <Warning>
+    Unlike OpenAI format, `max_tokens` is mandatory for Anthropic endpoints.
+  </Warning>
+</ParamField>
+
+<ParamField body="stream" type="boolean" default="false">
+  Enable Server-Sent Events (SSE) streaming
+</ParamField>
+
+<ParamField body="temperature" type="number">
+  Sampling temperature (0.0 to 1.0)
+</ParamField>
+
+<ParamField body="top_p" type="number">
+  Nucleus sampling (0.0 to 1.0)
+</ParamField>
+
+<ParamField body="top_k" type="integer">
+  Top-K sampling parameter
+</ParamField>
+
+<ParamField body="thinking" type="object">
+  Extended thinking configuration for reasoning models
+  
+  <Expandable title="Thinking Config">
+    <ParamField body="type" type="string" required>
+      Thinking mode:
+      - `enabled` - Enable with budget
+      - `adaptive` - Dynamic budget (maps to fixed budget internally)
+      - `disabled` - No extended thinking
+    </ParamField>
+    
+    <ParamField body="budget_tokens" type="integer">
+      Token budget for reasoning:
+      - Low: `8192`
+      - Medium: `16384`
+      - High: `24576`
+    </ParamField>
+    
+    <ParamField body="effort" type="string">
+      Effort level: `low`, `medium`, `high`, `max`
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="output_config" type="object">
+  Output configuration (Claude API v2.0.67+)
+  
+  <Expandable title="Output Config">
+    <ParamField body="effort" type="string">
+      Model reasoning effort: `low`, `medium`, `high`
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+<ParamField body="tools" type="array">
+  Available tools for function calling
+  
+  <Expandable title="Tool Definition">
+    <ParamField body="name" type="string" required>
+      Tool name
+    </ParamField>
+    
+    <ParamField body="description" type="string">
+      Tool description
+    </ParamField>
+    
+    <ParamField body="input_schema" type="object" required>
+      JSON Schema for tool parameters
+    </ParamField>
+  </Expandable>
+  
+  Server tools like `web_search` can be enabled via:
+  
+  <Expandable title="Server Tool">
+    <ParamField body="type" type="string">
+      Server tool type, e.g., `web_search_20250305`
+    </ParamField>
+    
+    <ParamField body="name" type="string">
+      Tool name: `web_search`
+    </ParamField>
+  </Expandable>
+</ParamField>
+
+## Response Format
+
+### Non-Streaming Response
+
+<ResponseField name="id" type="string">
+  Unique message identifier
+</ResponseField>
+
+<ResponseField name="type" type="string">
+  Response type, always `message`
+</ResponseField>
+
+<ResponseField name="role" type="string">
+  Always `assistant`
+</ResponseField>
+
+<ResponseField name="model" type="string">
+  Model used for generation
+</ResponseField>
+
+<ResponseField name="content" type="array">
+  Response content blocks
+  
+  <Expandable title="Content Blocks">
+    <ResponseField name="type" type="string">
+      Block type: `text`, `thinking`, `tool_use`, `image`
+    </ResponseField>
+    
+    <ResponseField name="text" type="string">
+      Text content (for `text` blocks)
+    </ResponseField>
+    
+    <ResponseField name="thinking" type="string">
+      Reasoning content (for `thinking` blocks)
+    </ResponseField>
+    
+    <ResponseField name="signature" type="string">
+      Cryptographic signature for thinking/tool_use blocks
+    </ResponseField>
+    
+    <ResponseField name="id" type="string">
+      Tool call ID (for `tool_use` blocks)
+    </ResponseField>
+    
+    <ResponseField name="name" type="string">
+      Tool name (for `tool_use` blocks)
+    </ResponseField>
+    
+    <ResponseField name="input" type="object">
+      Tool parameters (for `tool_use` blocks)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+<ResponseField name="stop_reason" type="string">
+  Completion reason: `end_turn`, `max_tokens`, `tool_use`, `stop_sequence`
+</ResponseField>
+
+<ResponseField name="usage" type="object">
+  Token usage statistics
+  
+  <Expandable title="Usage Object">
+    <ResponseField name="input_tokens" type="integer">
+      Prompt tokens
+    </ResponseField>
+    
+    <ResponseField name="output_tokens" type="integer">
+      Completion tokens
+    </ResponseField>
+    
+    <ResponseField name="cache_read_input_tokens" type="integer">
+      Cached tokens read (prompt caching)
+    </ResponseField>
+    
+    <ResponseField name="cache_creation_input_tokens" type="integer">
+      Tokens cached for future use
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example: Basic Chat
+
+```bash
+curl -X POST http://127.0.0.1:8045/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk-antigravity" \
+  -d '{
+    "model": "claude-sonnet-4-6",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "Explain quantum computing"}
+    ]
+  }'
+```
+
+## Example: With System Prompt
+
+```bash
+curl -X POST http://127.0.0.1:8045/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk-antigravity" \
+  -d '{
+    "model": "claude-sonnet-4-6",
+    "max_tokens": 2048,
+    "system": "You are a helpful coding assistant. Always explain your reasoning.",
+    "messages": [
+      {"role": "user", "content": "Write a Python function to reverse a string"}
+    ]
+  }'
+```
+
+## Example: Extended Thinking
+
+```bash
+curl -X POST http://127.0.0.1:8045/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk-antigravity" \
+  -d '{
+    "model": "claude-sonnet-4-6-thinking",
+    "max_tokens": 4096,
+    "thinking": {
+      "type": "enabled",
+      "budget_tokens": 16384
+    },
+    "messages": [
+      {"role": "user", "content": "Solve this complex logic puzzle: ..."}
+    ]
+  }'
+```
+
+## Example: Claude Code CLI Integration
+
+```bash
+# Set environment variables
+export ANTHROPIC_API_KEY="sk-antigravity"
+export ANTHROPIC_BASE_URL="http://127.0.0.1:8045"
+
+# Run Claude Code CLI
+claude "Help me debug this Python code"
+```
+
+## Example: Tool Use
+
+```bash
+curl -X POST http://127.0.0.1:8045/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk-antigravity" \
+  -d '{
+    "model": "claude-sonnet-4-6",
+    "max_tokens": 2048,
+    "tools": [
+      {
+        "name": "get_weather",
+        "description": "Get current weather",
+        "input_schema": {
+          "type": "object",
+          "properties": {
+            "location": {"type": "string"}
+          },
+          "required": ["location"]
+        }
+      }
+    ],
+    "messages": [
+      {"role": "user", "content": "What's the weather in Tokyo?"}
+    ]
+  }'
+```
+
+## Example: Web Search (Server Tool)
+
+```bash
+curl -X POST http://127.0.0.1:8045/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk-antigravity" \
+  -d '{
+    "model": "claude-sonnet-4-6",
+    "max_tokens": 2048,
+    "tools": [
+      {
+        "type": "web_search_20250305",
+        "name": "web_search"
+      }
+    ],
+    "messages": [
+      {"role": "user", "content": "What are the latest AI developments?"}
+    ]
+  }'
+```
+
+## Content Block Types
+
+### Text Block
+
+```json
+{
+  "type": "text",
+  "text": "Here is my response..."
+}
+```
+
+### Thinking Block
+
+```json
+{
+  "type": "thinking",
+  "thinking": "Let me analyze this step by step...",
+  "signature": "base64-encoded-signature"
+}
+```
+
+### Tool Use Block
+
+```json
+{
+  "type": "tool_use",
+  "id": "toolu_123abc",
+  "name": "get_weather",
+  "input": {
+    "location": "Tokyo"
+  },
+  "signature": "base64-encoded-signature"
+}
+```
+
+### Tool Result Block (in messages)
+
+```json
+{
+  "role": "user",
+  "content": [
+    {
+      "type": "tool_result",
+      "tool_use_id": "toolu_123abc",
+      "content": "Temperature: 22°C, Sunny"
+    }
+  ]
+}
+```
+
+## Image Upload
+
+```json
+{
+  "role": "user",
+  "content": [
+    {
+      "type": "image",
+      "source": {
+        "type": "base64",
+        "media_type": "image/jpeg",
+        "data": "base64-encoded-image-data"
+      }
+    },
+    {
+      "type": "text",
+      "text": "What's in this image?"
+    }
+  ]
+}
+```
+
+## Features
+
+- **Full Claude Protocol**: 100% compatible with Claude Code CLI and Anthropic SDKs
+- **Extended Thinking**: Support for reasoning tokens with signature validation
+- **Tool Use**: Client tools, server tools (web_search), and MCP integration
+- **Streaming**: Real-time SSE streaming with thinking blocks
+- **Context Caching**: Automatic prompt caching for repeated contexts
+- **Multi-modal**: Images, documents, audio support
+
+## Error Format
+
+```json
+{
+  "type": "error",
+  "error": {
+    "type": "invalid_request_error",
+    "message": "max_tokens is required"
+  }
+}
+```
+
+Common error types:
+- `invalid_request_error` - Malformed request
+- `authentication_error` - Invalid API key
+- `rate_limit_error` - Quota exceeded
+- `server_error` - Internal error

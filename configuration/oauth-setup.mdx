@@ -1,0 +1,113 @@
+---
+title: 'OAuth 2.0 Setup'
+description: 'Configure OAuth 2.0 authorization flow for Google AI accounts'
+icon: 'key'
+---
+
+## Overview
+
+Antigravity Manager uses OAuth 2.0 to securely access Google AI Studio accounts. This page explains the authorization flow and configuration options.
+
+## Authorization Flow
+
+The OAuth 2.0 flow is handled automatically through the Tauri backend:
+
+1. **Account Addition**: When adding a new account, the application initiates an OAuth flow
+2. **User Consent**: Users authenticate with Google and grant permissions
+3. **Token Storage**: Access and refresh tokens are securely stored
+4. **Automatic Refresh**: Tokens are automatically refreshed when expired
+
+## Configuration
+
+### OAuth Endpoints
+
+The application uses standard Google OAuth 2.0 endpoints:
+
+- **Authorization URL**: `https://accounts.google.com/o/oauth2/v2/auth`
+- **Token URL**: `https://oauth2.googleapis.com/token`
+- **Device Code URL**: `https://oauth2.googleapis.com/device/code`
+
+### Required Scopes
+
+Antigravity requests the following OAuth scopes:
+
+```rust
+const SCOPES: &str = "openid email profile https://www.googleapis.com/auth/generative-language";
+```
+
+<ParamField path="openid" type="string">
+  OpenID Connect authentication
+</ParamField>
+
+<ParamField path="email" type="string">
+  Access to user email address
+</ParamField>
+
+<ParamField path="profile" type="string">
+  Access to basic profile information
+</ParamField>
+
+<ParamField path="generative-language" type="string">
+  Access to Google AI Studio / Gemini API
+</ParamField>
+
+## Security Considerations
+
+<Warning>
+  **Token Security**: OAuth tokens are stored in the application's secure storage. Never share your configuration files containing tokens.
+</Warning>
+
+### Token Storage
+
+Tokens are stored in the application data directory:
+
+- **macOS**: `~/Library/Application Support/com.antigravity.app/`
+- **Linux**: `~/.config/antigravity/`
+- **Windows**: `%APPDATA%\antigravity\`
+
+### Token Refresh
+
+Access tokens typically expire after 1 hour. The application automatically refreshes them using the refresh token before they expire.
+
+## Troubleshooting
+
+### Authorization Failed
+
+If OAuth authorization fails:
+
+1. Check your internet connection
+2. Verify Google account permissions
+3. Try removing and re-adding the account
+4. Check for any browser extensions blocking the OAuth popup
+
+### Token Expiration
+
+If you see frequent token expiration errors:
+
+1. Ensure system time is correct
+2. Check if refresh tokens are being saved properly
+3. Verify network connectivity
+4. Re-authenticate the account
+
+## API Integration
+
+The OAuth implementation is located in:
+
+```
+src-tauri/src/services/google_oauth.rs
+```
+
+Key functions:
+
+- `start_oauth_flow()` - Initiates OAuth flow
+- `exchange_code()` - Exchanges authorization code for tokens
+- `refresh_token()` - Refreshes expired access tokens
+
+## Best Practices
+
+<Note>
+  - Keep the application updated to ensure OAuth implementation stays current
+  - Regularly review connected accounts in Google Account settings
+  - Use different accounts for development and production
+  - Enable 2FA on your Google account for additional security
+</Note>

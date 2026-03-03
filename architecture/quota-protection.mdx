@@ -1,0 +1,309 @@
+---
+title: Quota Protection Mechanisms
+description: Automatic quota monitoring and model-level protection to prevent service disruption
+---
+
+Antigravity Manager includes a comprehensive quota protection system that monitors account usage and automatically protects models from exhaustion.
+
+## Overview
+
+The quota protection system prevents complete account exhaustion by:
+
+- **Real-time quota monitoring** - Tracks remaining quota per model
+- **Model-level protection** - Locks specific models when quota is low
+- **Automatic recovery** - Re-enables models when quota replenishes
+- **Account rotation** - Seamlessly switches to healthy accounts
+
+## How Quota Protection Works
+
+### 1. Quota Monitoring
+
+During account loading, the system checks quota levels for each model:
+
+```rust
+async fn check_and_protect_quota(
+    account_json: &mut serde_json::Value,
+    account_path: &PathBuf,
+) -> bool {
+    let config = load_app_config()?.quota_protection;
+    
+    if !config.enabled {
+        return false; // Protection disabled
+    }
+    
+    let threshold = config.threshold_percentage as i32;
+    let models = account.get("quota").get("models").as_array()?;
+    
+    // Check each monitored model
+    for model in models {
+        let percentage = model.get("percentage").as_i64().unwrap_or(100) as i32;
+        if percentage <= threshold {
+            // Trigger protection
+        }
+    }
+}
+```
+
+### 2. Model Grouping & Aggregation
+
+The system groups model variants by standard ID to prevent conflicts:
+
+```rust
+// Aggregate all variants (Pro-Low, Pro-High) under standard ID
+let mut group_min_percentage: HashMap<String, i32> = HashMap::new();
+
+for model in models {
+    let name = model.get("name").unwrap_or("");
+    let percentage = model.get("percentage").unwrap_or(100) as i32;
+    
+    if let Some(std_id) = normalize_to_standard_id(name) {
+        let entry = group_min_percentage.entry(std_id).or_insert(100);
+        if percentage < *entry {
+            *entry = percentage;  // Track worst-case scenario
+        }
+    }
+}
+```
+
+This prevents issues like:
+- `gemini-3.1-pro-low` at 0% and `gemini-3.1-pro-high` at 100% causing routing conflicts
+
+### 3. Protection Triggering
+
+When quota falls below the threshold, the model is added to the protected list:
+
+```rust
+async fn trigger_quota_protection(
+    account_json: &mut serde_json::Value,
+    account_id: &str,
+    current_val: i32,
+    threshold: i32,
+    model_name: &str,
+) -> Result<bool> {
+    // Initialize protected_models array if needed
+    if account_json.get("protected_models").is_none() {
+        account_json["protected_models"] = json!([]);
+    }
+    
+    let protected_models = account_json["protected_models"].as_array_mut().unwrap();
+    
+    if !protected_models.iter().any(|m| m.as_str() == Some(model_name)) {
+        protected_models.push(json!(model_name));
+        
+        tracing::info!(
+            "Account {} model {} quota-protected ({}% <= {}%)",
+            account_id, model_name, current_val, threshold
+        );
+        
+        // Persist to disk
+        std::fs::write(account_path, to_string_pretty(account_json)?)?;
+        
+        // Trigger in-memory reload
+        trigger_account_reload(account_id);
+    }
+    
+    Ok(true)
+}
+```
+
+### 4. Runtime Filtering
+
+During token selection, protected models are automatically skipped:
+
+```rust
+let available: Vec<&ProxyToken> = candidates.iter()
+    .filter(|t| !attempted.contains(&t.account_id))
+    .filter(|t| {
+        !quota_protection_enabled || 
+        !t.protected_models.contains(normalized_target)
+    })
+    .collect();
+```
+
+### 5. Automatic Recovery
+
+When quota replenishes above the threshold, models are automatically restored:
+
+```rust
+async fn restore_quota_protection(
+    account_json: &mut serde_json::Value,
+    account_id: &str,
+    model_name: &str,
+) -> Result<bool> {
+    if let Some(arr) = account_json
+        .get_mut("protected_models")
+        .and_then(|v| v.as_array_mut())
+    {
+        let original_len = arr.len();
+        arr.retain(|m| m.as_str() != Some(model_name));
+        
+        if arr.len() < original_len {
+            tracing::info!(
+                "Account {} model {} quota restored, removed from protection",
+                account_id, model_name
+            );
+            
+            std::fs::write(account_path, to_string_pretty(account_json)?)?;
+            return Ok(true);
+        }
+    }
+    Ok(false)
+}
+```
+
+## In-Memory Quota Cache
+
+To avoid disk I/O during routing, quota data is cached in memory:
+
+```rust
+pub struct ProxyToken {
+    // ... other fields
+    
+    /// In-memory cache for model-specific quotas
+    pub model_quotas: HashMap<String, i32>,
+    
+    /// Models currently under protection
+    pub protected_models: HashSet<String>,
+}
+
+// Built during account loading
+let mut model_quotas = HashMap::new();
+if let Some(models) = account.get("quota").get("models").as_array() {
+    for model in models {
+        let name = model.get("name").unwrap_or("");
+        let pct = model.get("percentage").unwrap_or(100) as i32;
+        
+        let standard_id = normalize_to_standard_id(name)
+            .unwrap_or_else(|| name.to_string());
+        
+        model_quotas.insert(standard_id, pct);
+    }
+}
+```
+
+This ensures:
+- **Zero disk latency** during hot path routing
+- **Accurate quota-based sorting**
+- **Real-time protection status**
+
+## Migration from Account-Level to Model-Level Protection
+
+Antigravity v4.1.27 migrated from account-level to model-level protection:
+
+```rust
+async fn check_and_restore_quota(
+    account_json: &mut serde_json::Value,
+    config: &QuotaProtectionConfig,
+) -> bool {
+    // Check if account is disabled due to old quota protection
+    if account_json.get("proxy_disabled").unwrap_or(false) &&
+       account_json.get("proxy_disabled_reason") == Some("quota_protection") {
+        
+        tracing::info!("Migrating account from global to model-level protection");
+        
+        // Clear account-level disable
+        account_json["proxy_disabled"] = json!(false);
+        account_json["proxy_disabled_reason"] = json!(null);
+        
+        // Build model-level protected list
+        let mut protected_list = Vec::new();
+        for model in models {
+            let percentage = model.get("percentage").unwrap_or(0) as i32;
+            if percentage <= threshold {
+                protected_list.push(json!(model.get("name")));
+            }
+        }
+        
+        account_json["protected_models"] = json!(protected_list);
+        std::fs::write(account_path, to_string_pretty(account_json)?)?;
+        
+        return false; // Account can now be loaded
+    }
+}
+```
+
+Benefits:
+- Accounts with mixed quota levels remain partially available
+- Only exhausted models are protected
+- Better resource utilization
+
+## Configuration
+
+### Enable Quota Protection
+
+```json
+{
+  "quota_protection": {
+    "enabled": true,
+    "threshold_percentage": 10,
+    "monitored_models": [
+      "gemini-3.1-pro",
+      "gemini-3.1-flash",
+      "claude-sonnet-4-6",
+      "claude-opus-4-6"
+    ]
+  }
+}
+```
+
+### Configuration Options
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `enabled` | boolean | `false` | Enable/disable quota protection |
+| `threshold_percentage` | integer | `10` | Minimum quota % before protection triggers |
+| `monitored_models` | array | `[]` | List of model IDs to monitor |
+
+## Best Practices
+
+1. **Set threshold at 10-15%** - Provides buffer before complete exhaustion
+2. **Monitor high-value models** - Focus on expensive models like Opus
+3. **Keep auto-refresh enabled** - Ensures protection reacts to quota changes
+4. **Review protected models daily** - Identify accounts needing attention
+5. **Use multiple accounts** - Distribute load to prevent single-point exhaustion
+
+## Monitoring Protected Models
+
+Check protection status via the account detail view:
+
+```typescript
+// Frontend displays protected models in account cards
+{account.protected_models?.length > 0 && (
+  <Badge variant="warning">
+    {account.protected_models.length} models protected
+  </Badge>
+)}
+```
+
+## Troubleshooting
+
+### Issue: Account still used after protection enabled
+
+**Cause:** Protection requires account reload to take effect.
+
+**Solution:** 
+```bash
+# Trigger manual reload via API
+curl -X POST http://localhost:8045/api/accounts/reload
+```
+
+### Issue: Model shows protected but has quota
+
+**Cause:** Variant grouping - one variant may have low quota while another has high.
+
+**Solution:** Check all variants (e.g., `pro-low` vs `pro-high`) in account details.
+
+### Issue: All accounts protected, service down
+
+**Cause:** All accounts exhausted below threshold.
+
+**Solution:**
+- Add more accounts
+- Lower threshold temporarily
+- Wait for quota reset
+
+## Related
+
+- [Smart Routing](/architecture/smart-routing) - How accounts are selected
+- [Self-Healing](/architecture/self-healing) - Automatic retry mechanisms
+- [Account Management](/customize/manage-accounts) - Adding and managing accounts

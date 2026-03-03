@@ -1,0 +1,538 @@
+---
+title: Token Manager Architecture
+description: Account and token management system
+---
+
+## Overview
+
+The **TokenManager** is the core component responsible for managing AI service accounts, including token lifecycle, account selection, quota tracking, and rate limiting.
+
+**Location:** `src-tauri/src/proxy/token_manager.rs`
+
+## Core Structure
+
+```rust
+pub struct TokenManager {
+    tokens: Arc<DashMap<String, ProxyToken>>,
+    current_index: Arc<AtomicUsize>,
+    last_used_account: Arc<Mutex<Option<(String, Instant)>>>,
+    data_dir: PathBuf,
+    rate_limit_tracker: Arc<RateLimitTracker>,
+    sticky_config: Arc<RwLock<StickySessionConfig>>,
+    session_accounts: Arc<DashMap<String, String>>,
+    preferred_account_id: Arc<RwLock<Option<String>>>,
+    health_scores: Arc<DashMap<String, f32>>,
+    circuit_breaker_config: Arc<RwLock<CircuitBreakerConfig>>,
+    auto_cleanup_handle: Arc<Mutex<Option<JoinHandle<()>>>>,
+    cancel_token: CancellationToken,
+}
+```
+
+### ProxyToken Structure
+
+```rust
+pub struct ProxyToken {
+    pub account_id: String,
+    pub access_token: String,
+    pub refresh_token: String,
+    pub expires_in: i64,
+    pub timestamp: i64,
+    pub email: String,
+    pub account_path: PathBuf,
+    pub project_id: Option<String>,
+    pub subscription_tier: Option<String>,  // "FREE" | "PRO" | "ULTRA"
+    pub remaining_quota: Option<i32>,
+    pub protected_models: HashSet<String>,
+    pub health_score: f32,
+    pub reset_time: Option<i64>,
+    pub validation_blocked: bool,
+    pub validation_blocked_until: i64,
+    pub validation_url: Option<String>,
+    pub model_quotas: HashMap<String, i32>,
+    pub model_limits: HashMap<String, u64>,
+}
+```
+
+## Initialization
+
+### Creating TokenManager
+
+```rust
+let token_manager = TokenManager::new(data_dir);
+```
+
+### Loading Accounts
+
+**Location:** `token_manager.rs:116`
+
+```rust
+pub async fn load_accounts(&self) -> Result<usize, String> {
+    let accounts_dir = self.data_dir.join("accounts");
+    
+    // Clear existing tokens
+    self.tokens.clear();
+    self.current_index.store(0, Ordering::SeqCst);
+    
+    // Read all .json files
+    let entries = std::fs::read_dir(&accounts_dir)?;
+    
+    let mut count = 0;
+    for entry in entries {
+        let path = entry.path();
+        if path.extension() == Some("json") {
+            match self.load_single_account(&path).await {
+                Ok(Some(token)) => {
+                    self.tokens.insert(token.account_id.clone(), token);
+                    count += 1;
+                }
+                Ok(None) => { /* Skip disabled accounts */ }
+                Err(e) => tracing::debug!("Failed to load {:?}: {}", path, e),
+            }
+        }
+    }
+    
+    Ok(count)
+}
+```
+
+### Account Filtering
+
+**Location:** `token_manager.rs:295`
+
+Accounts are skipped if:
+1. **Manually disabled** - `disabled: true` or `proxy_disabled: true`
+2. **Validation blocked** - Temporary block for CAPTCHA/verification
+3. **Expired validation block** - Auto-clear and reload
+
+```rust
+// Check if account is manually disabled
+let is_proxy_disabled = account["proxy_disabled"].as_bool().unwrap_or(false);
+let disabled_reason = account["proxy_disabled_reason"].as_str().unwrap_or("");
+
+if is_proxy_disabled && disabled_reason != "quota_protection" {
+    return Ok(None);  // Skip
+}
+
+// Check validation block
+if account["validation_blocked"].as_bool().unwrap_or(false) {
+    let block_until = account["validation_blocked_until"].as_i64().unwrap_or(0);
+    let now = chrono::Utc::now().timestamp();
+    
+    if now < block_until {
+        return Ok(None);  // Still blocked
+    } else {
+        // Clear expired block
+        account["validation_blocked"] = json!(false);
+        std::fs::write(path, to_string_pretty(&account)?)?;
+    }
+}
+```
+
+## Token Selection Algorithm
+
+### Entry Point: `get_token()`
+
+**Location:** `token_manager.rs:969`
+
+```rust
+pub async fn get_token(
+    &self,
+    quota_group: &str,
+    force_rotate: bool,
+    session_id: Option<&str>,
+    target_model: &str,
+) -> Result<(String, String, String, String, u64), String>
+```
+
+**Returns:** `(account_id, access_token, email, project_id, max_output_tokens)`
+
+### Selection Strategy (Multi-Phase)
+
+#### Phase 1: Capability Filtering
+
+**Location:** `token_manager.rs:1031`
+
+Only keep accounts that have the target model in their quota data:
+
+```rust
+let normalized_target = normalize_to_standard_id(target_model)
+    .unwrap_or_else(|| target_model.to_string());
+
+// Filter accounts that have this model
+tokens_snapshot.retain(|t| t.model_quotas.contains_key(&normalized_target));
+
+if tokens_snapshot.is_empty() {
+    return Err(format!("No accounts with quota for model: {}", normalized_target));
+}
+```
+
+#### Phase 2: Multi-Criteria Sorting
+
+**Location:** `token_manager.rs:1055`
+
+```rust
+tokens_snapshot.sort_by(|a, b| {
+    // Priority 0: Subscription tier (ULTRA > PRO > FREE)
+    let tier_cmp = tier_priority(&a.subscription_tier)
+        .cmp(&tier_priority(&b.subscription_tier));
+    if tier_cmp != Ordering::Equal { return tier_cmp; }
+    
+    // Priority 1: Target model quota (higher is better)
+    let quota_a = a.model_quotas.get(&normalized_target).unwrap_or(&0);
+    let quota_b = b.model_quotas.get(&normalized_target).unwrap_or(&0);
+    let quota_cmp = quota_b.cmp(&quota_a);
+    if quota_cmp != Ordering::Equal { return quota_cmp; }
+    
+    // Priority 2: Health score (higher is better)
+    let health_cmp = b.health_score.partial_cmp(&a.health_score)
+        .unwrap_or(Ordering::Equal);
+    if health_cmp != Ordering::Equal { return health_cmp; }
+    
+    // Priority 3: Reset time (earlier is better, if diff > 10 min)
+    let reset_a = a.reset_time.unwrap_or(i64::MAX);
+    let reset_b = b.reset_time.unwrap_or(i64::MAX);
+    if (reset_a - reset_b).abs() >= 600 {
+        return reset_a.cmp(&reset_b);
+    }
+    
+    Ordering::Equal
+});
+```
+
+#### Phase 3: Special Modes
+
+**Preferred Account Mode (Fixed Account)**
+
+**Location:** `token_manager.rs:1131`
+
+```rust
+let preferred_id = self.preferred_account_id.read().await.clone();
+if let Some(ref pref_id) = preferred_id {
+    if let Some(preferred_token) = tokens_snapshot.iter()
+        .find(|t| &t.account_id == pref_id)
+    {
+        // Check if account is available
+        if !self.is_rate_limited(&preferred_token.account_id, Some(&normalized_target)).await
+            && !is_quota_protected
+        {
+            tracing::info!("Using preferred account: {}", preferred_token.email);
+            return self.prepare_token(preferred_token.clone()).await;
+        }
+    }
+}
+```
+
+#### Phase 4: P2C Load Balancing
+
+**Location:** `token_manager.rs:869`
+
+**Power of 2 Choices (P2C):**
+- Select 2 random accounts from top 5 candidates
+- Choose the one with higher quota
+- Reduces hotspotting compared to round-robin
+
+```rust
+fn select_with_p2c<'a>(
+    &self,
+    candidates: &'a [ProxyToken],
+    attempted: &HashSet<String>,
+    normalized_target: &str,
+    quota_protection_enabled: bool,
+) -> Option<&'a ProxyToken> {
+    // Filter available tokens
+    let available: Vec<&ProxyToken> = candidates.iter()
+        .filter(|t| !attempted.contains(&t.account_id))
+        .filter(|t| !quota_protection_enabled || 
+                    !t.protected_models.contains(normalized_target))
+        .collect();
+    
+    if available.len() <= 1 { return available.first().copied(); }
+    
+    // Pick 2 random from top 5
+    let pool_size = available.len().min(5);
+    let pick1 = rand::thread_rng().gen_range(0..pool_size);
+    let pick2 = (pick1 + 1) % pool_size;
+    
+    let c1 = available[pick1];
+    let c2 = available[pick2];
+    
+    // Return higher quota
+    if c1.remaining_quota.unwrap_or(0) >= c2.remaining_quota.unwrap_or(0) {
+        Some(c1)
+    } else {
+        Some(c2)
+    }
+}
+```
+
+## Token Refresh
+
+### Automatic Refresh
+
+**Location:** `token_manager.rs:1196`
+
+Tokens are refreshed **5 minutes before expiry**:
+
+```rust
+let now = chrono::Utc::now().timestamp();
+if now >= token.timestamp - 300 {
+    tracing::debug!("Token expiring soon, refreshing: {}", token.email);
+    
+    match oauth::refresh_access_token(&token.refresh_token, Some(&token.account_id)).await {
+        Ok(token_response) => {
+            token.access_token = token_response.access_token.clone();
+            token.expires_in = token_response.expires_in;
+            token.timestamp = now + token_response.expires_in;
+            
+            // Update in-memory cache
+            if let Some(mut entry) = self.tokens.get_mut(&token.account_id) {
+                entry.access_token = token.access_token.clone();
+                entry.timestamp = token.timestamp;
+            }
+            
+            // Persist to disk
+            self.save_refreshed_token(&token.account_id, &token_response).await?;
+        }
+        Err(e) => tracing::warn!("Token refresh failed: {}", e),
+    }
+}
+```
+
+## Quota Protection
+
+### Overview
+
+Quota protection prevents low-quota accounts from being selected for protected models.
+
+**Location:** `token_manager.rs:544`
+
+### Protection Logic
+
+```rust
+async fn check_and_protect_quota(
+    &self,
+    account_json: &mut Value,
+    account_path: &PathBuf,
+) -> bool {
+    // 1. Load quota protection config
+    let config = load_app_config()?.quota_protection;
+    if !config.enabled { return false; }
+    
+    // 2. Group models by standard ID, find min quota per group
+    let mut group_min_percentage: HashMap<String, i32> = HashMap::new();
+    
+    for model in models {
+        let name = model["name"].as_str().unwrap_or("");
+        let percentage = model["percentage"].as_i64().unwrap_or(100) as i32;
+        
+        if let Some(std_id) = normalize_to_standard_id(name) {
+            let entry = group_min_percentage.entry(std_id).or_insert(100);
+            if percentage < *entry {
+                *entry = percentage;
+            }
+        }
+    }
+    
+    // 3. For each monitored model, check if protection needed
+    let threshold = config.threshold_percentage as i32;
+    
+    for std_id in &config.monitored_models {
+        let min_pct = group_min_percentage.get(std_id).cloned().unwrap_or(100);
+        
+        if min_pct <= threshold {
+            // Add to protected_models
+            self.trigger_quota_protection(
+                account_json, account_id, account_path,
+                min_pct, threshold, std_id
+            ).await?;
+        } else if is_currently_protected(std_id) {
+            // Remove from protected_models
+            self.restore_quota_protection(
+                account_json, account_id, account_path, std_id
+            ).await?;
+        }
+    }
+    
+    false  // Don't skip account, just filter models
+}
+```
+
+### Triggering Protection
+
+```rust
+async fn trigger_quota_protection(
+    &self,
+    account_json: &mut Value,
+    account_id: &str,
+    account_path: &PathBuf,
+    current_val: i32,
+    threshold: i32,
+    model_name: &str,
+) -> Result<bool, String> {
+    // Add model to protected_models array
+    let protected_models = account_json["protected_models"].as_array_mut().unwrap();
+    
+    if !protected_models.iter().any(|m| m.as_str() == Some(model_name)) {
+        protected_models.push(json!(model_name));
+        
+        tracing::info!(
+            "Account {} model {} quota protected ({}% <= {}%)",
+            account_id, model_name, current_val, threshold
+        );
+        
+        // Write to disk
+        std::fs::write(account_path, to_string_pretty(account_json)?)?;
+        
+        // Signal reload
+        trigger_account_reload(account_id);
+        
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+```
+
+## Rate Limiting
+
+### Rate Limit Tracker
+
+```rust
+pub struct RateLimitTracker {
+    limits: Arc<DashMap<String, RateLimitInfo>>,
+}
+
+struct RateLimitInfo {
+    until: Instant,
+    model: Option<String>,
+}
+```
+
+### Checking Rate Limits
+
+```rust
+pub async fn is_rate_limited(
+    &self,
+    account_id: &str,
+    model: Option<&str>,
+) -> bool {
+    self.rate_limit_tracker.is_limited(account_id, model)
+}
+```
+
+### Setting Rate Limits
+
+```rust
+pub fn set_rate_limit(
+    &self,
+    account_id: &str,
+    duration: Duration,
+    model: Option<String>,
+) {
+    self.rate_limit_tracker.set_limit(account_id, duration, model);
+}
+```
+
+### Auto-Cleanup
+
+**Location:** `token_manager.rs:79`
+
+Background task cleans up expired rate limits every 15 seconds:
+
+```rust
+pub async fn start_auto_cleanup(&self) {
+    let tracker = self.rate_limit_tracker.clone();
+    let cancel = self.cancel_token.child_token();
+    
+    let handle = tokio::spawn(async move {
+        let mut interval = tokio::time::interval(Duration::from_secs(15));
+        loop {
+            tokio::select! {
+                _ = cancel.cancelled() => break,
+                _ = interval.tick() => {
+                    let cleaned = tracker.cleanup_expired();
+                    if cleaned > 0 {
+                        tracing::info!("Cleaned {} expired rate limits", cleaned);
+                    }
+                }
+            }
+        }
+    });
+    
+    *self.auto_cleanup_handle.lock().await = Some(handle);
+}
+```
+
+## Health Scoring
+
+### Tracking Health
+
+```rust
+pub struct TokenManager {
+    health_scores: Arc<DashMap<String, f32>>,  // 0.0 - 1.0
+}
+```
+
+### Updating Health
+
+- **Success:** Increase health score (max 1.0)
+- **Failure:** Decrease health score (min 0.0)
+- **Decay:** Gradually recover over time
+
+## Session Binding (Sticky Sessions)
+
+### Purpose
+
+Maintain account consistency across multiple requests in the same session (e.g., Claude Code multi-turn conversations).
+
+### Implementation
+
+```rust
+pub struct TokenManager {
+    session_accounts: Arc<DashMap<String, String>>,  // SessionID -> AccountID
+}
+```
+
+**Checking for existing binding:**
+
+```rust
+if let Some(session_id) = session_id {
+    if let Some(bound_account_id) = self.session_accounts.get(session_id) {
+        // Use the same account as before
+        if let Some(token) = self.tokens.get(&bound_account_id.value()) {
+            return prepare_token(token.clone()).await;
+        }
+    }
+}
+```
+
+## Graceful Shutdown
+
+```rust
+pub async fn graceful_shutdown(&self, timeout: Duration) {
+    tracing::info!("Initiating graceful shutdown...");
+    
+    // Send cancel signal
+    self.cancel_token.cancel();
+    
+    // Wait for tasks with timeout
+    match tokio::time::timeout(timeout, self.abort_background_tasks()).await {
+        Ok(_) => tracing::info!("All tasks cleaned up"),
+        Err(_) => tracing::warn!("Shutdown timed out, force-aborting"),
+    }
+}
+```
+
+## Summary
+
+The TokenManager is a sophisticated account orchestration system that:
+
+- **Loads accounts** from disk with filtering
+- **Selects optimal accounts** using multi-phase algorithm
+- **Refreshes tokens** automatically before expiry
+- **Protects quotas** with model-level granularity
+- **Handles rate limits** with auto-cleanup
+- **Maintains sessions** for conversational continuity
+- **Tracks health** for reliability scoring
+
+**Next:** [Model Router Architecture](/architecture/model-router)

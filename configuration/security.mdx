@@ -1,0 +1,376 @@
+---
+title: 'Security Settings'
+description: 'Configure API keys, authentication, and security monitoring'
+icon: 'shield-halved'
+---
+
+## Overview
+
+Antigravity Manager provides comprehensive security features including API key management, IP filtering, and request authentication.
+
+## API Key Configuration
+
+### Primary API Key
+
+<ParamField path="api_key" type="string" required>
+  Primary API key for proxy authentication
+  
+  **Format**: Must start with `sk-` followed by UUID  
+  **Auto-generated**: On first launch  
+  **Example**: `sk-a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6`
+  
+  **Location**: `config.rs:481`
+</ParamField>
+
+<Warning>
+  **Never commit API keys to version control**. Store them securely and rotate regularly.
+</Warning>
+
+### Admin Password
+
+<ParamField path="admin_password" type="string" optional>
+  Separate password for Web UI management console
+  
+  If not set, the API key is used for Web UI authentication.
+  
+  **Minimum Length**: 4 characters  
+  **Use Case**: Docker/browser environments where API key should not be exposed
+  
+  **Location**: `config.rs:484`
+</ParamField>
+
+### Key Generation
+
+API keys are automatically generated using UUID v4:
+
+```rust
+api_key: format!("sk-{}", uuid::Uuid::new_v4().simple())
+```
+
+**Location**: `config.rs:576`
+
+## Authentication Modes
+
+<ParamField path="auth_mode" type="enum" default="auto">
+  Request authentication policy
+  
+  **Location**: `config.rs:146-157`
+</ParamField>
+
+### Mode Options
+
+<ParamField path="auth_mode.off" type="value">
+  No authentication required
+  
+  **Use Case**: Local-only development
+  **Security Level**: ⚠️ Low
+</ParamField>
+
+<ParamField path="auth_mode.strict" type="value">
+  Authentication required for ALL routes
+  
+  **Use Case**: Production environments with LAN access
+  **Security Level**: ✅ High
+</ParamField>
+
+<ParamField path="auth_mode.all_except_health" type="value">
+  Authentication required except `/healthz` endpoint
+  
+  **Use Case**: Production with health monitoring
+  **Security Level**: ✅ High
+</ParamField>
+
+<ParamField path="auth_mode.auto" type="value">
+  Recommended automatic mode
+  
+  **Behavior**:
+  - LAN access enabled → `all_except_health`
+  - Local only → `off`
+  
+  **Use Case**: Most deployments
+  **Security Level**: ⚡ Adaptive
+  
+  **Location**: `security.rs:25-36`
+</ParamField>
+
+## IP Access Control
+
+### Blacklist Configuration
+
+<ParamField path="security_monitor.blacklist.enabled" type="boolean" default="false">
+  Enable IP blacklist filtering
+  
+  **Location**: `config.rs:395`
+</ParamField>
+
+<ParamField path="security_monitor.blacklist.block_message" type="string" default="Access denied">
+  Custom message shown to blocked IPs
+  
+  **Location**: `config.rs:398-399`
+</ParamField>
+
+### Whitelist Configuration
+
+<ParamField path="security_monitor.whitelist.enabled" type="boolean" default="false">
+  Enable whitelist-only mode
+  
+  When enabled, only whitelisted IPs can access the service.
+  
+  **Location**: `config.rs:420`
+</ParamField>
+
+<ParamField path="security_monitor.whitelist.whitelist_priority" type="boolean" default="true">
+  Whitelist IPs bypass blacklist checks
+  
+  If true, whitelisted IPs are never blocked even if in blacklist.
+  
+  **Location**: `config.rs:423`
+</ParamField>
+
+### Configuration Example
+
+```json
+{
+  "proxy": {
+    "security_monitor": {
+      "blacklist": {
+        "enabled": true,
+        "block_message": "Your IP has been blocked. Contact support."
+      },
+      "whitelist": {
+        "enabled": true,
+        "whitelist_priority": true
+      }
+    }
+  }
+}
+```
+
+## Network Security
+
+### Bind Address Control
+
+<ParamField path="allow_lan_access" type="boolean" default="false">
+  Control network exposure
+  
+  **false** (default):
+  - Bind to `127.0.0.1`
+  - Local machine only
+  - Privacy-first approach
+  
+  **true**:
+  - Bind to `0.0.0.0`
+  - Allow LAN access
+  - Requires authentication
+  
+  **Location**: `config.rs:463-467, 620-629`
+</ParamField>
+
+### Effective Auth Mode Logic
+
+```rust
+pub fn effective_auth_mode(&self) -> ProxyAuthMode {
+    match self.auth_mode {
+        ProxyAuthMode::Auto => {
+            if self.allow_lan_access {
+                ProxyAuthMode::AllExceptHealth
+            } else {
+                ProxyAuthMode::Off
+            }
+        }
+        ref other => other.clone(),
+    }
+}
+```
+
+**Location**: `security.rs:25-37`
+
+## Request Security
+
+### User-Agent Override
+
+<ParamField path="user_agent_override" type="string" optional>
+  Custom User-Agent header for upstream requests
+  
+  **Use Cases**:
+  - Bypass overly strict API filtering
+  - Add application identification
+  - Debug request routing
+  
+  **Example**: `antigravity/1.15.8 darwin/arm64`
+  
+  **Location**: `config.rs:515`
+</ParamField>
+
+<ParamField path="saved_user_agent" type="string" optional>
+  Persisted User-Agent value
+  
+  Retained even when `user_agent_override` is disabled, for quick re-enabling.
+  
+  **Location**: `config.rs:536-537`
+</ParamField>
+
+## Proxy Pool Security
+
+### Proxy Authentication
+
+<ParamField path="proxy_pool.proxies[].auth" type="object" optional>
+  Authentication credentials for upstream proxy
+  
+  **Location**: `config.rs:648-649`
+</ParamField>
+
+<ParamField path="proxy_pool.proxies[].auth.username" type="string">
+  Proxy username
+  
+  **Location**: `config.rs:635`
+</ParamField>
+
+<ParamField path="proxy_pool.proxies[].auth.password" type="string">
+  Proxy password (encrypted at rest)
+  
+  Uses custom serialization for security:
+  ```rust
+  #[serde(
+      serialize_with = "crate::utils::crypto::serialize_password",
+      deserialize_with = "crate::utils::crypto::deserialize_password"
+  )]
+  ```
+  
+  **Location**: `config.rs:637-640`
+</ParamField>
+
+### Proxy Configuration Example
+
+```json
+{
+  "proxy_pool": {
+    "enabled": true,
+    "proxies": [
+      {
+        "id": "proxy-1",
+        "name": "US Residential",
+        "url": "http://proxy.example.com:8080",
+        "auth": {
+          "username": "user123",
+          "password": "encrypted_password_here"
+        },
+        "enabled": true,
+        "priority": 1
+      }
+    ]
+  }
+}
+```
+
+## Token & Credential Storage
+
+All sensitive data is stored in platform-specific secure locations:
+
+### Storage Locations
+
+- **macOS**: `~/Library/Application Support/com.antigravity.app/`
+- **Linux**: `~/.config/antigravity/`
+- **Windows**: `%APPDATA%\antigravity\`
+
+### Encryption
+
+<Note>
+  Proxy passwords are encrypted using the `crypto` utilities module before storage.
+  
+  OAuth tokens are stored with restricted file permissions (0600).
+</Note>
+
+## Best Practices
+
+### Development
+
+```json
+{
+  "allow_lan_access": false,
+  "auth_mode": "off",
+  "security_monitor": {
+    "blacklist": { "enabled": false },
+    "whitelist": { "enabled": false }
+  }
+}
+```
+
+### Production (Local Network)
+
+```json
+{
+  "allow_lan_access": true,
+  "auth_mode": "all_except_health",
+  "security_monitor": {
+    "blacklist": { "enabled": true },
+    "whitelist": { 
+      "enabled": true,
+      "whitelist_priority": true 
+    }
+  },
+  "admin_password": "strong-unique-password"
+}
+```
+
+### Production (Internet-Exposed)
+
+<Warning>
+  **Not Recommended**: Exposing the proxy to the internet is not recommended. Use a VPN or SSH tunnel instead.
+</Warning>
+
+If absolutely necessary:
+
+```json
+{
+  "allow_lan_access": true,
+  "auth_mode": "strict",
+  "security_monitor": {
+    "blacklist": { "enabled": true },
+    "whitelist": { 
+      "enabled": true,
+      "whitelist_priority": true 
+    }
+  },
+  "admin_password": "very-strong-unique-password",
+  "user_agent_override": "custom-app/1.0"
+}
+```
+
+## Security Checklist
+
+<Check>
+  ✅ Use strong, unique API keys  
+  ✅ Set separate admin password for web UI  
+  ✅ Enable authentication when allowing LAN access  
+  ✅ Regularly rotate API keys  
+  ✅ Monitor access logs for suspicious activity  
+  ✅ Use IP whitelist for known clients  
+  ✅ Keep the application updated  
+  ✅ Restrict file permissions on config files  
+  ✅ Use upstream proxy with authentication if needed  
+  ✅ Enable debug logging only when troubleshooting
+</Check>
+
+## Troubleshooting
+
+### Authentication Failed
+
+1. Verify `api_key` format (must start with `sk-`)
+2. Check `auth_mode` configuration
+3. Confirm client is sending `Authorization: Bearer <key>` header
+4. Review proxy logs for authentication errors
+
+### IP Blocked
+
+1. Check blacklist configuration
+2. Verify whitelist if enabled
+3. Review `block_message` for details
+4. Check proxy access logs
+
+### Web UI Login Failed
+
+1. Verify `admin_password` is set (or use `api_key`)
+2. Clear browser cache/cookies
+3. Check browser console for errors
+4. Restart proxy service

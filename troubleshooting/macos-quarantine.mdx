@@ -1,0 +1,275 @@
+---
+title: macOS Quarantine & Security Issues
+description: Resolve macOS Gatekeeper and quarantine problems
+---
+
+## Overview
+
+When downloading Antigravity Manager from outside the Mac App Store, macOS may quarantine the application to protect your system. This page explains how to safely bypass these restrictions.
+
+## Common Errors
+
+<Warning>
+These security measures are in place to protect you. Only proceed if you trust the source of the application.
+</Warning>
+
+### "App is damaged and can't be opened"
+
+This is the most common error when macOS quarantines an application. Despite the message, the app is not actually damaged—it's simply blocked by Gatekeeper.
+
+### "App can't be opened because it is from an unidentified developer"
+
+This occurs when the application is not notarized by Apple or the developer certificate is not recognized.
+
+### "App can't be verified"
+
+macOS couldn't verify the app for malicious software.
+
+## Solutions
+
+### Method 1: Remove Quarantine Attribute (Recommended)
+
+This is the most reliable method to fix macOS quarantine issues.
+
+1. **Open Terminal** (Applications → Utilities → Terminal)
+
+2. **Run the quarantine removal command:**
+   ```bash
+   sudo xattr -rd com.apple.quarantine "/Applications/Antigravity Tools.app"
+   ```
+
+3. **Enter your password** when prompted
+
+4. **Launch the application** normally from Applications
+
+<Tip>
+This command removes the quarantine attribute without disabling macOS security features.
+</Tip>
+
+### Method 2: Homebrew Installation with --no-quarantine
+
+If you're installing via Homebrew, you can prevent quarantine from the start:
+
+```bash
+brew install --cask --no-quarantine antigravity-tools
+```
+
+This flag tells Homebrew to skip the quarantine attribute when installing the application.
+
+### Method 3: System Settings Override
+
+<Warning>
+This method is less secure as it requires disabling Gatekeeper temporarily.
+</Warning>
+
+1. **Try to open the app** (it will be blocked)
+
+2. **Open System Settings:**
+   - macOS Ventura and later: System Settings → Privacy & Security
+   - macOS Monterey and earlier: System Preferences → Security & Privacy
+
+3. **Look for the security message:**
+   - You should see: "Antigravity Tools was blocked from use because it is not from an identified developer"
+
+4. **Click "Open Anyway"** or **"Allow"**
+
+5. **Confirm** when prompted
+
+### Method 4: Manual Gatekeeper Disable (Advanced)
+
+<Warning>
+This temporarily disables Gatekeeper system-wide. Only use this if you understand the security implications.
+</Warning>
+
+1. **Disable Gatekeeper:**
+   ```bash
+   sudo spctl --master-disable
+   ```
+
+2. **Open the application**
+
+3. **Re-enable Gatekeeper:**
+   ```bash
+   sudo spctl --master-enable
+   ```
+
+## Verifying the Fix
+
+After applying any of the above methods:
+
+1. **Launch Antigravity Manager** from Applications
+2. **Check the menu bar** - you should see the app icon
+3. **Verify functionality** - navigate to different pages
+
+## Understanding the Quarantine Attribute
+
+### What is com.apple.quarantine?
+
+The `com.apple.quarantine` extended attribute is automatically added by macOS to files downloaded from the internet. It triggers Gatekeeper checks when you try to open the file.
+
+### Check if an app is quarantined:
+
+```bash
+xattr "/Applications/Antigravity Tools.app"
+```
+
+If you see `com.apple.quarantine` in the output, the app is quarantined.
+
+### View detailed quarantine information:
+
+```bash
+xattr -p com.apple.quarantine "/Applications/Antigravity Tools.app"
+```
+
+This shows when and how the file was quarantined.
+
+## Prevention
+
+### For Future Installations
+
+1. **Use Homebrew with --no-quarantine flag:**
+   ```bash
+   brew tap lbjlaq/antigravity-manager https://github.com/lbjlaq/Antigravity-Manager
+   brew install --cask --no-quarantine antigravity-tools
+   ```
+
+2. **Remove quarantine immediately after download:**
+   ```bash
+   # If you downloaded the .dmg file
+   xattr -rd com.apple.quarantine ~/Downloads/Antigravity-Tools-*.dmg
+   ```
+
+3. **Keep the app updated** - newer versions may have improved notarization
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Command not found: xattr">
+    The `xattr` command should be available on all macOS systems. If it's not found:
+
+    1. Ensure you're using the correct terminal (not a custom shell that modifies PATH)
+    2. Try the full path: `/usr/bin/xattr`
+    3. Verify macOS command line tools are installed:
+       ```bash
+       xcode-select --install
+       ```
+  </Accordion>
+
+  <Accordion title="Operation not permitted">
+    If you get "Operation not permitted" when running the command:
+
+    1. **Check Full Disk Access:**
+       - System Settings → Privacy & Security → Full Disk Access
+       - Add Terminal to the allowed apps
+
+    2. **Disable System Integrity Protection (SIP)** temporarily:
+       <Warning>
+       Only do this if you understand the security implications.
+       </Warning>
+       
+       - Restart in Recovery Mode (hold Cmd+R during boot)
+       - Open Terminal from Utilities menu
+       - Run: `csrutil disable`
+       - Restart normally
+       - Remove quarantine attribute
+       - Re-enable SIP by repeating steps with `csrutil enable`
+  </Accordion>
+
+  <Accordion title="App still won't open after removing quarantine">
+    1. **Check if the app is properly installed:**
+       ```bash
+       ls -la "/Applications/Antigravity Tools.app"
+       ```
+
+    2. **Verify file permissions:**
+       ```bash
+       # Make the app executable
+       chmod +x "/Applications/Antigravity Tools.app/Contents/MacOS/antigravity-manager"
+       ```
+
+    3. **Check Console logs for errors:**
+       - Open Console app (Applications → Utilities → Console)
+       - Look for errors related to Antigravity Tools
+
+    4. **Reinstall the application:**
+       - Delete the existing app
+       - Download fresh from GitHub Releases
+       - Remove quarantine before opening
+  </Accordion>
+
+  <Accordion title="Homebrew installation fails">
+    1. **Update Homebrew:**
+       ```bash
+       brew update
+       ```
+
+    2. **Clear Homebrew cache:**
+       ```bash
+       brew cleanup
+       rm -rf "$(brew --cache)"
+       ```
+
+    3. **Retry installation:**
+       ```bash
+       brew install --cask --no-quarantine antigravity-tools
+       ```
+
+    4. **Check Homebrew logs:**
+       ```bash
+       brew install --cask --no-quarantine antigravity-tools --verbose
+       ```
+  </Accordion>
+</AccordionGroup>
+
+## Security Considerations
+
+<Warning>
+Removing quarantine attributes should only be done for applications you trust.
+</Warning>
+
+### Why is this necessary?
+
+Antigravity Manager is an open-source application distributed outside the Mac App Store. While the code is publicly available and can be audited, it may not be officially notarized by Apple, triggering these security warnings.
+
+### Is it safe?
+
+- The application source code is available at [GitHub](https://github.com/lbjlaq/Antigravity-Manager)
+- You can review the code before installing
+- The community actively maintains and reviews contributions
+- Removing the quarantine attribute only affects this specific app, not system-wide security
+
+### Best Practices
+
+1. **Download only from official sources:**
+   - [GitHub Releases](https://github.com/lbjlaq/Antigravity-Manager/releases)
+   - [Official Homebrew Tap](https://github.com/lbjlaq/Antigravity-Manager)
+
+2. **Verify checksums** if provided in release notes
+
+3. **Keep the application updated** to ensure you have the latest security fixes
+
+4. **Review permissions** the app requests
+
+## Alternative: Building from Source
+
+If you prefer maximum security, you can build the application from source:
+
+```bash
+# Clone the repository
+git clone https://github.com/lbjlaq/Antigravity-Manager.git
+cd Antigravity-Manager
+
+# Install dependencies
+npm install
+
+# Build the application
+npm run tauri build
+```
+
+This way, you can audit the code and build it yourself, eliminating quarantine issues entirely.
+
+## Related Resources
+
+- [Common Issues](/troubleshooting/common-issues) - General troubleshooting
+- [Debugging Guide](/troubleshooting/debugging) - Advanced debugging techniques
+- [Apple Support: Open a Mac app from an unidentified developer](https://support.apple.com/guide/mac-help/open-a-mac-app-from-an-unidentified-developer-mh40616/mac)

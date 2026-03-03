@@ -1,0 +1,413 @@
+---
+title: Installation Guide
+description: Install Antigravity Manager on Linux, macOS, or Windows using terminal scripts, Homebrew, Docker, or manual download
+---
+
+# Installation Guide
+
+Antigravity Manager supports multiple installation methods across all major platforms. Choose the method that best fits your workflow.
+
+## Terminal Installation (Recommended)
+
+The fastest way to install Antigravity Manager is using our cross-platform installation scripts. These scripts automatically detect your OS, architecture, and package manager.
+
+<CodeGroup>
+
+```bash Linux / macOS
+curl -fsSL https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/v4.1.27/install.sh | bash
+```
+
+```powershell Windows (PowerShell)
+irm https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/install.ps1 | iex
+```
+
+</CodeGroup>
+
+<Note>
+  **Supported Formats**: 
+  - Linux: `.deb` (Debian/Ubuntu), `.rpm` (Fedora/RHEL), `.AppImage` (Universal)
+  - macOS: `.dmg` (Universal Binary for Intel & Apple Silicon)
+  - Windows: NSIS `.exe` installer
+</Note>
+
+### Advanced Installation Options
+
+The installation scripts support additional parameters for advanced users:
+
+<Tabs>
+  <Tab title="Linux/macOS">
+    ```bash
+    # Install a specific version
+    curl -fsSL https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/v4.1.27/install.sh | VERSION=4.1.27 bash
+    
+    # Preview mode (dry-run)
+    curl -fsSL https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/v4.1.27/install.sh | bash -s -- --dry-run
+    
+    # Show help
+    curl -fsSL https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/v4.1.27/install.sh | bash -s -- --help
+    ```
+  </Tab>
+  
+  <Tab title="Windows">
+    ```powershell
+    # Install a specific version
+    $Version = "4.1.27"; irm https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/install.ps1 | iex
+    
+    # Preview mode (dry-run)
+    $DryRun = $true; irm https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/install.ps1 | iex
+    ```
+  </Tab>
+</Tabs>
+
+## Homebrew Installation (macOS & Linux)
+
+If you have [Homebrew](https://brew.sh/) installed, you can use it to install and manage Antigravity Manager:
+
+<Steps>
+  <Step title="Add the Tap">
+    Subscribe to the Antigravity Manager repository:
+    
+    ```bash
+    brew tap lbjlaq/antigravity-manager https://github.com/lbjlaq/Antigravity-Manager
+    ```
+  </Step>
+  
+  <Step title="Install the Application">
+    Install Antigravity Tools as a cask:
+    
+    ```bash
+    brew install --cask antigravity-tools
+    ```
+  </Step>
+  
+  <Step title="Fix Quarantine (macOS Only)">
+    If macOS shows "app is damaged", add the `--no-quarantine` flag:
+    
+    ```bash
+    brew install --cask --no-quarantine antigravity-tools
+    ```
+  </Step>
+</Steps>
+
+### Arch Linux Specific Installation
+
+Arch Linux users have two additional options:
+
+<Tabs>
+  <Tab title="One-Click Script (Recommended)">
+    ```bash
+    curl -sSL https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/deploy/arch/install.sh | bash
+    ```
+  </Tab>
+  
+  <Tab title="Homebrew (Linuxbrew)">
+    If you have [Linuxbrew](https://sh.brew.sh/) installed:
+    
+    ```bash
+    brew tap lbjlaq/antigravity-manager https://github.com/lbjlaq/Antigravity-Manager
+    brew install --cask antigravity-tools
+    ```
+  </Tab>
+</Tabs>
+
+## Docker Deployment (NAS/Server)
+
+Docker deployment is recommended for headless servers, NAS devices, or containerized environments. The Docker image includes native v4.0.3 Headless architecture with built-in web UI.
+
+### Quick Start with Docker Run
+
+```bash
+docker run -d --name antigravity-manager \
+  -p 8045:8045 \
+  -e API_KEY=sk-your-api-key \
+  -e WEB_PASSWORD=your-login-password \
+  -e ABV_MAX_BODY_SIZE=104857600 \
+  -v ~/.antigravity_tools:/root/.antigravity_tools \
+  lbjlaq/antigravity-manager:latest
+```
+
+<ParamField path="API_KEY" type="string" required>
+  **Required**. Used for all AI request authentication. Set this to any secure string (e.g., `sk-antigravity`).
+</ParamField>
+
+<ParamField path="WEB_PASSWORD" type="string">
+  **Optional**. Used for Web UI login. If not set, defaults to `API_KEY` value.
+</ParamField>
+
+<ParamField path="ABV_MAX_BODY_SIZE" type="integer" default="104857600">
+  Maximum request body size in bytes (default: 100MB). Increase for large multimodal requests.
+</ParamField>
+
+### Authentication Scenarios
+
+<AccordionGroup>
+  <Accordion title="Scenario A: Only API_KEY is set">
+    - **Web Login**: Use `API_KEY` to access the dashboard
+    - **API Calls**: Use `API_KEY` for AI request authentication
+    
+    This is the simplest setup for single-user environments.
+  </Accordion>
+  
+  <Accordion title="Scenario B: Both API_KEY and WEB_PASSWORD are set (Recommended)">
+    - **Web Login**: **Must** use `WEB_PASSWORD`. Using API Key will be rejected (more secure)
+    - **API Calls**: Continue to use `API_KEY`
+    
+    This allows you to share the API Key with team members while keeping the admin password private.
+  </Accordion>
+</AccordionGroup>
+
+<Warning>
+  **Environment Variable Priority**: 
+  
+  1. **Environment variables** (`WEB_PASSWORD`) - Highest priority, always used if set
+  2. **Configuration file** (`gui_config.json` → `admin_password`) - Used for persistent storage
+  3. **Fallback** - Uses `API_KEY` if neither is set
+</Warning>
+
+### Docker Compose Deployment
+
+For more complex setups, use Docker Compose:
+
+<Steps>
+  <Step title="Navigate to Docker Directory">
+    ```bash
+    cd docker
+    ```
+  </Step>
+  
+  <Step title="Start the Service">
+    ```bash
+    docker compose up -d
+    ```
+  </Step>
+  
+  <Step title="Access the Application">
+    - **Admin Console**: `http://localhost:8045`
+    - **API Base URL**: `http://localhost:8045/v1`
+  </Step>
+</Steps>
+
+### System Requirements for Docker
+
+<CardGroup cols={3}>
+  <Card title="Memory" icon="memory">
+    **Recommended**: 1GB
+    
+    **Minimum**: 256MB
+  </Card>
+  
+  <Card title="Persistence" icon="hard-drive">
+    Mount `/root/.antigravity_tools` to preserve account data and configuration
+  </Card>
+  
+  <Card title="Architecture" icon="microchip">
+    Supports both **x86_64** and **ARM64** platforms
+  </Card>
+</CardGroup>
+
+### Retrieving Forgotten Credentials
+
+<CodeGroup>
+
+```bash Docker Logs
+docker logs antigravity-manager
+```
+
+```bash Config File
+grep -E '"api_key"|"admin_password"' ~/.antigravity_tools/gui_config.json
+```
+
+</CodeGroup>
+
+## Manual Download
+
+Prefer to download the installer directly? Get the latest release from GitHub:
+
+<Card title="GitHub Releases" icon="github" href="https://github.com/lbjlaq/Antigravity-Manager/releases">
+  Download platform-specific installers:
+  - **macOS**: `.dmg` (Universal Binary - supports Apple Silicon & Intel)
+  - **Windows**: `.msi` or portable `.zip`
+  - **Linux**: `.deb`, `.rpm`, or `AppImage`
+</Card>
+
+### Platform-Specific Instructions
+
+<Tabs>
+  <Tab title="macOS">
+    <Steps>
+      <Step title="Download the DMG">
+        Get `Antigravity.Tools_4.1.27_universal.dmg` from GitHub Releases
+      </Step>
+      
+      <Step title="Mount and Install">
+        Double-click the DMG and drag "Antigravity Tools" to Applications
+      </Step>
+      
+      <Step title="Remove Quarantine">
+        If macOS shows "app is damaged", run:
+        
+        ```bash
+        sudo xattr -rd com.apple.quarantine "/Applications/Antigravity Tools.app"
+        ```
+      </Step>
+    </Steps>
+  </Tab>
+  
+  <Tab title="Windows">
+    <Steps>
+      <Step title="Download the Installer">
+        Get `Antigravity.Tools_4.1.27_x64-setup.exe` from GitHub Releases
+      </Step>
+      
+      <Step title="Run the Installer">
+        Double-click the installer and follow the setup wizard
+      </Step>
+      
+      <Step title="Launch the Application">
+        Find "Antigravity Tools" in your Start Menu
+      </Step>
+    </Steps>
+  </Tab>
+  
+  <Tab title="Linux">
+    <Tabs>
+      <Tab title=".deb (Debian/Ubuntu)">
+        ```bash
+        sudo dpkg -i Antigravity.Tools_4.1.27_amd64.deb
+        sudo apt-get install -f  # Fix dependencies if needed
+        ```
+      </Tab>
+      
+      <Tab title=".rpm (Fedora/RHEL)">
+        ```bash
+        sudo dnf install Antigravity.Tools-4.1.27-1.x86_64.rpm
+        # Or for older systems:
+        sudo yum install Antigravity.Tools-4.1.27-1.x86_64.rpm
+        ```
+      </Tab>
+      
+      <Tab title="AppImage">
+        ```bash
+        # Make executable
+        chmod +x Antigravity.Tools_4.1.27_amd64.AppImage
+        
+        # Move to binary path
+        mkdir -p ~/.local/bin
+        mv Antigravity.Tools_4.1.27_amd64.AppImage ~/.local/bin/antigravity-tools
+        
+        # Add to PATH (if needed)
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+        source ~/.bashrc
+        ```
+      </Tab>
+    </Tabs>
+  </Tab>
+</Tabs>
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title='macOS: "App is damaged" error'>
+    This is caused by macOS Gatekeeper security for non-App Store applications.
+    
+    **Solution 1 - Command Line (Recommended)**:
+    ```bash
+    sudo xattr -rd com.apple.quarantine "/Applications/Antigravity Tools.app"
+    ```
+    
+    **Solution 2 - Homebrew Installation**:
+    ```bash
+    brew install --cask --no-quarantine antigravity-tools
+    ```
+  </Accordion>
+  
+  <Accordion title="Linux: AppImage won't run">
+    **Missing FUSE**:
+    ```bash
+    # Ubuntu/Debian
+    sudo apt install libfuse2
+    
+    # Fedora
+    sudo dnf install fuse-libs
+    
+    # Arch
+    sudo pacman -S fuse2
+    ```
+    
+    **Permission Issues**:
+    ```bash
+    chmod +x Antigravity.Tools_4.1.27_amd64.AppImage
+    ```
+  </Accordion>
+  
+  <Accordion title="Docker: Connection refused">
+    **Check if container is running**:
+    ```bash
+    docker ps | grep antigravity-manager
+    ```
+    
+    **View logs**:
+    ```bash
+    docker logs antigravity-manager
+    ```
+    
+    **Verify port binding**:
+    ```bash
+    curl http://localhost:8045/health
+    ```
+  </Accordion>
+  
+  <Accordion title="Windows: Installation blocked by SmartScreen">
+    1. Click "More info" in the SmartScreen dialog
+    2. Click "Run anyway"
+    
+    This is normal for new installers that haven't built reputation with Microsoft yet.
+  </Accordion>
+</AccordionGroup>
+
+## Verifying Installation
+
+After installation, verify Antigravity Manager is working:
+
+<Steps>
+  <Step title="Launch the Application">
+    - **Desktop**: Find "Antigravity Tools" in your application launcher
+    - **Docker**: Navigate to `http://localhost:8045`
+  </Step>
+  
+  <Step title="Check Version">
+    The About page should show version **4.1.27**
+  </Step>
+  
+  <Step title="Test API Server">
+    Start the API proxy service and test:
+    
+    ```bash
+    curl http://127.0.0.1:8045/health
+    ```
+  </Step>
+</Steps>
+
+## Updating Antigravity Manager
+
+Antigravity Manager v4.1.16+ includes native auto-update support:
+
+<CardGroup cols={2}>
+  <Card title="Automatic Updates" icon="bell">
+    The application will automatically check for updates and notify you when a new version is available. Updates download in the background.
+  </Card>
+  
+  <Card title="Manual Updates" icon="download">
+    You can also manually download and install new versions from [GitHub Releases](https://github.com/lbjlaq/Antigravity-Manager/releases).
+  </Card>
+</CardGroup>
+
+<Note>
+  **Linux Auto-Update**: v4.1.16+ includes full auto-update support for AppImage on both `x86_64` and `aarch64` architectures.
+</Note>
+
+## Next Steps
+
+<Card title="Quick Start Guide" icon="rocket" href="/quickstart">
+  Now that you have Antigravity Manager installed, learn how to add your first account and make API calls.
+</Card>

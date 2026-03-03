@@ -1,0 +1,514 @@
+---
+title: Docker Compose Setup
+description: Deploy Antigravity Manager using Docker Compose for simplified configuration and management
+---
+
+## Overview
+
+Docker Compose provides declarative configuration and easier management of Antigravity Manager containers. This method is ideal for persistent deployments on servers and NAS devices.
+
+## Prerequisites
+
+- Docker Engine 20.10+
+- Docker Compose V2 (or docker-compose 1.29+)
+- 1GB RAM recommended
+- Port 8045 available
+
+## Quick Start
+
+### Step 1: Get the Configuration
+
+<Tabs>
+  <Tab title="Clone Repository">
+    ```bash
+    git clone https://github.com/lbjlaq/Antigravity-Manager.git
+    cd Antigravity-Manager/docker
+    ```
+  </Tab>
+
+  <Tab title="Download Compose File">
+    ```bash
+    mkdir -p antigravity-manager
+    cd antigravity-manager
+    curl -O https://raw.githubusercontent.com/lbjlaq/Antigravity-Manager/main/docker/docker-compose.yml
+    ```
+  </Tab>
+</Tabs>
+
+### Step 2: Configure Environment
+
+Create a `.env` file in the same directory:
+
+```bash .env
+# API Authentication
+API_KEY=sk-your-secure-api-key-here
+
+# Web UI Password (optional, defaults to API_KEY if not set)
+WEB_PASSWORD=your-admin-password
+
+# Logging
+LOG_LEVEL=info
+
+# Network Binding (true = localhost only, false = all interfaces)
+ABV_BIND_LOCAL_ONLY=false
+```
+
+<Warning>
+  **Security**: Generate strong, unique values for `API_KEY` and `WEB_PASSWORD`. Never commit `.env` to version control.
+</Warning>
+
+### Step 3: Start Services
+
+```bash
+docker compose up -d
+```
+
+### Step 4: Verify Installation
+
+```bash
+# Check container status
+docker compose ps
+
+# View logs
+docker compose logs -f
+
+# Test health endpoint
+curl http://localhost:8045/health
+```
+
+## Docker Compose Configuration
+
+### Basic Configuration
+
+```yaml docker-compose.yml
+services:
+  antigravity-manager:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: lbjlaq/antigravity-manager
+    container_name: antigravity-manager
+    network_mode: host  # Direct localhost access
+    volumes:
+      - ~/.antigravity_tools:/root/.antigravity_tools
+    environment:
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - API_KEY=${API_KEY:-test}
+      - ABV_BIND_LOCAL_ONLY=${ABV_BIND_LOCAL_ONLY:-true}
+    restart: unless-stopped
+```
+
+### Advanced Configuration
+
+```yaml docker-compose.advanced.yml
+services:
+  antigravity-manager:
+    image: lbjlaq/antigravity-manager:latest
+    container_name: antigravity-manager
+    
+    # Use bridge network with port mapping (works on all platforms)
+    ports:
+      - "8045:8045"
+    
+    volumes:
+      - antigravity-data:/root/.antigravity_tools
+      # Optional: custom configuration
+      - ./custom-config.json:/root/.antigravity_tools/gui_config.json:ro
+    
+    environment:
+      # Authentication
+      - API_KEY=${API_KEY}
+      - WEB_PASSWORD=${WEB_PASSWORD}
+      - AUTH_MODE=AllExceptHealth
+      
+      # Performance
+      - ABV_MAX_BODY_SIZE=104857600  # 100MB
+      
+      # Network
+      - ABV_BIND_LOCAL_ONLY=false
+      - ABV_PUBLIC_URL=https://antigravity.example.com
+      
+      # Logging
+      - LOG_LEVEL=debug
+      - RUST_LOG=info
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 1G
+        reservations:
+          memory: 256M
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8045/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    restart: unless-stopped
+    
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  antigravity-data:
+    driver: local
+```
+
+## Environment Variables
+
+<ParamField path="API_KEY" type="string" required>
+  API key for authenticating AI requests.
+  
+  **Default in compose**: `test` (change this!)
+</ParamField>
+
+<ParamField path="WEB_PASSWORD" type="string">
+  Separate password for Web UI login. Falls back to `API_KEY` if not set.
+</ParamField>
+
+<ParamField path="LOG_LEVEL" type="string" default="info">
+  Options: `debug`, `info`, `warn`, `error`
+</ParamField>
+
+<ParamField path="ABV_BIND_LOCAL_ONLY" type="boolean" default="true">
+  In host network mode, binds to `127.0.0.1` if true, `0.0.0.0` if false.
+</ParamField>
+
+<ParamField path="ABV_MAX_BODY_SIZE" type="integer" default="104857600">
+  Maximum request size in bytes (default: 100MB)
+</ParamField>
+
+<ParamField path="ABV_PUBLIC_URL" type="string">
+  Public URL for OAuth callbacks (e.g., behind reverse proxy)
+</ParamField>
+
+<ParamField path="AUTH_MODE" type="string" default="AllExceptHealth">
+  Authentication mode: `Off`, `Strict`, `AllExceptHealth`, `Auto`
+</ParamField>
+
+## Network Modes
+
+<Tabs>
+  <Tab title="Host Network (Linux Only)">
+    **Best for**: Direct localhost access, minimal overhead
+
+    ```yaml
+    services:
+      antigravity-manager:
+        network_mode: host
+        environment:
+          - ABV_BIND_LOCAL_ONLY=true
+    ```
+
+    <Warning>
+      Host network mode doesn't work on macOS/Windows Docker Desktop.
+    </Warning>
+
+    Access at: `http://localhost:8045`
+  </Tab>
+
+  <Tab title="Bridge Network (All Platforms)">
+    **Best for**: Cross-platform compatibility, custom ports
+
+    ```yaml
+    services:
+      antigravity-manager:
+        ports:
+          - "8045:8045"  # or "3000:8045" for custom port
+        environment:
+          - ABV_BIND_LOCAL_ONLY=false
+    ```
+
+    Access at: `http://localhost:8045`
+  </Tab>
+
+  <Tab title="Custom Network">
+    **Best for**: Multi-container setups, service isolation
+
+    ```yaml
+    services:
+      antigravity-manager:
+        networks:
+          - antigravity-net
+        ports:
+          - "8045:8045"
+    
+    networks:
+      antigravity-net:
+        driver: bridge
+    ```
+  </Tab>
+</Tabs>
+
+## Volume Management
+
+### Named Volume (Recommended)
+
+```yaml
+services:
+  antigravity-manager:
+    volumes:
+      - antigravity-data:/root/.antigravity_tools
+
+volumes:
+  antigravity-data:
+    driver: local
+```
+
+**Benefits:**
+- Docker-managed lifecycle
+- Easy backup/restore
+- Platform-independent
+
+### Bind Mount
+
+```yaml
+services:
+  antigravity-manager:
+    volumes:
+      - ~/.antigravity_tools:/root/.antigravity_tools
+      # Windows: C:\Users\YourName\.antigravity_tools:/root/.antigravity_tools
+```
+
+**Benefits:**
+- Direct file access
+- Easy manual editing
+- Shared across containers
+
+## Managing Services
+
+<CodeGroup>
+
+```bash Start
+# Start in background
+docker compose up -d
+
+# Start with rebuild
+docker compose up -d --build
+```
+
+```bash Stop
+# Stop containers (preserves data)
+docker compose stop
+
+# Stop and remove containers
+docker compose down
+
+# Stop and remove containers + volumes
+docker compose down -v
+```
+
+```bash Logs
+# Follow logs
+docker compose logs -f
+
+# Last 100 lines
+docker compose logs --tail=100
+
+# Service-specific logs
+docker compose logs -f antigravity-manager
+```
+
+```bash Restart
+# Restart all services
+docker compose restart
+
+# Restart specific service
+docker compose restart antigravity-manager
+```
+
+```bash Update
+# Pull latest image
+docker compose pull
+
+# Recreate containers
+docker compose up -d --force-recreate
+```
+
+</CodeGroup>
+
+## Health Checks
+
+Add health checks to monitor service availability:
+
+```yaml
+services:
+  antigravity-manager:
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8045/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+```
+
+Check health status:
+
+```bash
+docker compose ps
+```
+
+## Multi-Service Example
+
+Deploy with Nginx reverse proxy:
+
+```yaml docker-compose.full.yml
+services:
+  antigravity-manager:
+    image: lbjlaq/antigravity-manager:latest
+    container_name: antigravity
+    networks:
+      - app-network
+    volumes:
+      - antigravity-data:/root/.antigravity_tools
+    environment:
+      - API_KEY=${API_KEY}
+      - WEB_PASSWORD=${WEB_PASSWORD}
+      - ABV_BIND_LOCAL_ONLY=false
+      - ABV_PUBLIC_URL=https://antigravity.example.com
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx-proxy
+    networks:
+      - app-network
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - antigravity-manager
+    restart: unless-stopped
+
+networks:
+  app-network:
+    driver: bridge
+
+volumes:
+  antigravity-data:
+    driver: local
+```
+
+## Backup and Restore
+
+### Backup Data
+
+```bash
+# Named volume backup
+docker run --rm \
+  -v antigravity-data:/data \
+  -v $(pwd):/backup \
+  alpine tar czf /backup/antigravity-backup-$(date +%Y%m%d).tar.gz -C /data .
+
+# Bind mount backup
+tar czf antigravity-backup-$(date +%Y%m%d).tar.gz ~/.antigravity_tools
+```
+
+### Restore Data
+
+```bash
+# Named volume restore
+docker run --rm \
+  -v antigravity-data:/data \
+  -v $(pwd):/backup \
+  alpine tar xzf /backup/antigravity-backup-20260303.tar.gz -C /data
+
+# Bind mount restore
+tar xzf antigravity-backup-20260303.tar.gz -C ~/
+```
+
+## Local Development Build
+
+For local development with pre-built frontend:
+
+```yaml docker-compose.localdist.yml
+services:
+  antigravity-manager:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.localdist
+      args:
+        USE_MIRROR: auto
+    image: antigravity-manager:dev
+    # ... rest of config
+```
+
+Build and run:
+
+```bash
+# Build frontend locally first
+npm ci --legacy-peer-deps
+npm run build
+
+# Build and start container
+docker compose -f docker-compose.yml -f docker-compose.localdist.yml up -d --build
+```
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Port already in use">
+    Change the host port mapping:
+    ```yaml
+    ports:
+      - "3000:8045"  # Use port 3000 instead
+    ```
+  </Accordion>
+
+  <Accordion title="Permission denied on volume mount">
+    Fix permissions:
+    ```bash
+    sudo chown -R $USER:$USER ~/.antigravity_tools
+    chmod -R 755 ~/.antigravity_tools
+    ```
+  </Accordion>
+
+  <Accordion title="Cannot access from other devices on network">
+    Ensure:
+    1. Using bridge network mode (not host)
+    2. `ABV_BIND_LOCAL_ONLY=false`
+    3. Firewall allows port 8045
+    4. Access via host IP: `http://192.168.x.x:8045`
+  </Accordion>
+
+  <Accordion title="Container keeps restarting">
+    Check logs:
+    ```bash
+    docker compose logs --tail=50 antigravity-manager
+    ```
+
+    Disable restart to debug:
+    ```yaml
+    restart: "no"
+    ```
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Headless Mode Features" icon="server" href="/deployment/headless-mode">
+    Learn about headless-specific configuration options
+  </Card>
+  <Card title="Reverse Proxy Setup" icon="shield" href="/deployment/reverse-proxy">
+    Add HTTPS and custom domain with Nginx/Caddy
+  </Card>
+  <Card title="API Integration" icon="plug" href="/api/quick-start">
+    Connect Claude CLI, OpenCode, and other clients
+  </Card>
+  <Card title="Monitoring" icon="chart-line" href="/features/monitoring">
+    Set up logging and monitoring for production
+  </Card>
+</CardGroup>

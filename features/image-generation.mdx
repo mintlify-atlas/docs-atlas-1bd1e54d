@@ -1,0 +1,375 @@
+---
+title: Image Generation (Imagen 3)
+description: Generate images using Imagen 3 through OpenAI-compatible API
+---
+
+## Overview
+
+Antigravity Manager supports Imagen 3 image generation through multiple API formats, providing flexibility for different use cases and client applications.
+
+## Supported Formats
+
+### OpenAI Images API (Recommended)
+
+Use the standard OpenAI images endpoint:
+
+```python
+import openai
+
+client = openai.OpenAI(
+    api_key="sk-antigravity",
+    base_url="http://127.0.0.1:8045/v1"
+)
+
+response = client.images.generate(
+    model="gemini-3-pro-image",
+    prompt="A futuristic city with neon lights, cyberpunk style",
+    size="1920x1080",      # Any WIDTHxHEIGHT format
+    quality="hd",          # "standard" | "hd" | "medium"
+    n=1,
+    response_format="b64_json"
+)
+
+# Save image
+import base64
+image_data = base64.b64decode(response.data[0].b64_json)
+with open("output.png", "wb") as f:
+    f.write(image_data)
+```
+
+### Chat API with Parameters
+
+Generate images through the chat completions endpoint:
+
+```python
+# OpenAI Chat API
+response = client.chat.completions.create(
+    model="gemini-3-pro-image",
+    size="1920x1080",      # Any WIDTHxHEIGHT format
+    quality="hd",          # "standard" | "hd" | "medium" 
+    messages=[{"role": "user", "content": "A futuristic city"}]
+)
+```
+
+```bash
+# Claude Messages API
+curl -X POST http://127.0.0.1:8045/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk-antigravity" \
+  -d '{
+    "model": "gemini-3-pro-image",
+    "size": "1280x720",
+    "quality": "hd",
+    "messages": [{"role": "user", "content": "A cute cat"}]
+  }'
+```
+
+### Model Suffix Method
+
+Embed parameters in the model name:
+
+```python
+response = client.chat.completions.create(
+    model="gemini-3-pro-image-16-9-4k",  # Format: model-[ratio]-[quality]
+    messages=[{"role": "user", "content": "A futuristic city"}]
+)
+```
+
+## Size Parameters
+
+### Standard Sizes
+
+Supported aspect ratios and resolutions:
+
+<Tabs>
+  <Tab title="Square (1:1)">
+    ```python
+    size="1024x1024"  # Standard
+    quality="hd"      # 4K resolution
+    ```
+  </Tab>
+  
+  <Tab title="Landscape (16:9)">
+    ```python
+    size="1920x1080"  # Full HD
+    size="1280x720"   # HD
+    quality="hd"      # 4K resolution
+    ```
+  </Tab>
+  
+  <Tab title="Portrait (9:16)">
+    ```python
+    size="1080x1920"  # Mobile
+    size="720x1280"   # HD vertical
+    ```
+  </Tab>
+  
+  <Tab title="4:3 and 3:4">
+    ```python
+    size="1216x896"   # Landscape 4:3
+    size="896x1216"   # Portrait 3:4
+    ```
+  </Tab>
+</Tabs>
+
+### Custom Dimensions
+
+Any `WIDTHxHEIGHT` format is supported and automatically mapped to standard ratios:
+
+```python
+# Custom sizes - automatically calculated
+size="2560x1440"  # Maps to 16:9
+size="3840x2160"  # Maps to 16:9 (4K)
+size="1600x1200"  # Maps to 4:3
+```
+
+<Note>
+The system calculates the aspect ratio and maps to the nearest standard format.
+</Note>
+
+## Quality Settings
+
+### Quality Levels
+
+```python
+quality="standard"  # Default resolution (1K)
+quality="medium"    # 2K resolution
+quality="hd"        # 4K resolution
+```
+
+### Advanced: imageSize Parameter
+
+Direct resolution control using Gemini's native parameter:
+
+```python
+response = client.chat.completions.create(
+    model="gemini-3-pro-image",
+    size="16:9",       # Aspect ratio
+    imageSize="4K",    # Direct resolution: "1K" | "2K" | "4K"
+    messages=[{"role": "user", "content": "A futuristic city"}]
+)
+```
+
+<Tip>
+`imageSize` has the highest priority and overrides `quality` if both are specified.
+</Tip>
+
+### Parameter Priority
+
+```
+imageSize parameter > quality parameter > model suffix
+```
+
+## Model Suffix Combinations
+
+Embed all parameters in the model name:
+
+```typescript
+// Format: gemini-3-pro-image-[ratio]-[quality]
+"gemini-3-pro-image-16-9"      // 16:9 standard
+"gemini-3-pro-image-16-9-4k"   // 16:9 4K
+"gemini-3-pro-image-9-16-2k"   // 9:16 2K
+"gemini-3-pro-image-4-3"       // 4:3 standard
+"gemini-3-pro-image-1-1-4k"    // 1:1 4K
+```
+
+## Response Formats
+
+### Base64 JSON (Default)
+
+```python
+response_format="b64_json"
+
+# Decode and save
+import base64
+image_data = base64.b64decode(response.data[0].b64_json)
+with open("image.png", "wb") as f:
+    f.write(image_data)
+```
+
+### Data URI
+
+```python
+response_format="url"
+
+# Response contains data URI
+data_uri = response.data[0].url
+# Format: data:image/png;base64,iVBORw0KGgo...
+```
+
+## Batch Generation
+
+Generate multiple images in one request:
+
+```python
+response = client.images.generate(
+    model="gemini-3-pro-image",
+    prompt="A futuristic city",
+    n=4,  # Generate 4 images (max 10)
+    size="1024x1024"
+)
+
+for i, image in enumerate(response.data):
+    image_data = base64.b64decode(image.b64_json)
+    with open(f"image_{i}.png", "wb") as f:
+        f.write(image_data)
+```
+
+<Warning>
+Generating multiple images consumes quota proportionally (4 images = 4x quota usage).
+</Warning>
+
+## Client Integration
+
+### Cherry Studio
+
+Configure image generation in Cherry Studio:
+
+<Steps>
+  <Step title="Open Model Settings">
+    Navigate to **Settings** → **Models** and select `gemini-3-pro-image`.
+  </Step>
+  
+  <Step title="Configure Parameters">
+    Set the following in model settings:
+    - **Size**: Enter any `WIDTHxHEIGHT` format (e.g., `1920x1080`)
+    - **Quality**: Choose `standard`, `hd`, or `medium`
+    - **Number**: Set generation count (1-10)
+  </Step>
+  
+  <Step title="Generate Images">
+    Simply send your image description in the chat.
+  </Step>
+</Steps>
+
+### Using Model Config UI
+
+Some clients support model-level configuration:
+
+```json
+{
+  "model": "gemini-3-pro-image",
+  "default_params": {
+    "size": "1920x1080",
+    "quality": "hd",
+    "n": 1
+  }
+}
+```
+
+## Quota Tracking
+
+Image generation quota is tracked separately:
+
+```typescript
+// From src/pages/Dashboard.tsx:52
+const geminiImageQuotas = accounts
+  .map(a => a.quota?.models.find(m =>
+    m.name.toLowerCase() === 'gemini-3.1-flash-image' ||
+    m.name.toLowerCase() === 'gemini-3-pro-image'
+  )?.percentage || 0)
+  .filter(q => q > 0);
+
+const avgGeminiImage = geminiImageQuotas.length > 0
+  ? Math.round(geminiImageQuotas.reduce((a, b) => a + b, 0) / geminiImageQuotas.length)
+  : 0;
+```
+
+### Real-time Quota Updates
+
+Quota is refreshed immediately after generation:
+
+```rust
+// Automatic quota sync after image generation
+if image_generation_successful {
+    tokio::spawn(async move {
+        let _ = refresh_quota_for_account(&account_id).await;
+    });
+}
+```
+
+## Advanced Options
+
+### Aspect Ratio Mapping
+
+The system automatically maps custom sizes to standard ratios:
+
+```rust
+fn calculate_aspect_ratio(width: u32, height: u32) -> String {
+    let ratio = width as f64 / height as f64;
+    
+    if (ratio - 21.0/9.0).abs() < 0.1 { "21:9" }
+    else if (ratio - 16.0/9.0).abs() < 0.1 { "16:9" }
+    else if (ratio - 4.0/3.0).abs() < 0.1 { "4:3" }
+    else if (ratio - 3.0/4.0).abs() < 0.1 { "3:4" }
+    else if (ratio - 9.0/16.0).abs() < 0.1 { "9:16" }
+    else { "1:1" }
+}
+```
+
+### Size Validation
+
+```python
+# Automatic size parsing and validation
+def parse_size(size_str: str) -> tuple:
+    try:
+        width, height = size_str.split('x')
+        return (int(width), int(height))
+    except:
+        return (1024, 1024)  # Default fallback
+```
+
+## Error Handling
+
+### Common Errors
+
+<Tabs>
+  <Tab title="Invalid Size Format">
+    ```python
+    # Error: Invalid size format
+    size="invalid"
+    
+    # Solution: Use WIDTHxHEIGHT
+    size="1920x1080"
+    ```
+  </Tab>
+  
+  <Tab title="Quota Exceeded">
+    ```json
+    {
+      "error": {
+        "message": "No accounts available with quota for model: gemini-3-pro-image",
+        "type": "quota_exceeded"
+      }
+    }
+    ```
+    
+    <Warning>
+    Check quota status and wait for reset or add more accounts.
+    </Warning>
+  </Tab>
+  
+  <Tab title="Invalid Model Suffix">
+    ```python
+    # Error: Unrecognized suffix
+    model="gemini-3-pro-image-invalid"
+    
+    # Solution: Use valid suffixes
+    model="gemini-3-pro-image-16-9-4k"
+    ```
+  </Tab>
+</Tabs>
+
+## Best Practices
+
+1. **Use Standard Sizes**: Stick to common resolutions for best results
+2. **Monitor Quota**: Track image generation quota separately from text
+3. **Quality vs. Quota**: Balance quality settings with quota consumption
+4. **Batch Wisely**: Generate multiple variations when needed
+5. **Cache Results**: Store generated images to avoid regeneration
+
+## Related Features
+
+- [API Proxy](/features/api-proxy) - Configure image generation settings
+- [Quota Monitoring](/features/quota-monitoring) - Track image quota usage
+- [Model Routing](/features/model-routing) - Set up image model mappings

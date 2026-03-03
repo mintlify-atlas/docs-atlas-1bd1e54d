@@ -1,0 +1,401 @@
+---
+title: "Image Generation - /v1/images/generations"
+description: "OpenAI-compatible image generation with Imagen 3 support"
+---
+
+## Endpoint
+
+```
+POST http://127.0.0.1:8045/v1/images/generations
+```
+
+Generate images using Google's Imagen 3 engine through an OpenAI-compatible interface. Supports custom sizes, quality levels, and aspect ratios.
+
+## Authentication
+
+<ParamField header="Authorization" type="string" required>
+  Bearer token authentication
+  ```
+  Authorization: Bearer sk-antigravity
+  ```
+</ParamField>
+
+## Request Headers
+
+<ParamField header="Content-Type" type="string" required>
+  Must be `application/json`
+</ParamField>
+
+## Request Body
+
+<ParamField body="model" type="string" required>
+  Image model identifier:
+  - `gemini-3-pro-image` - Standard image generation
+  - `gemini-3.1-flash-image` - Fast image generation
+  - `gemini-3-pro-image-16-9-4k` - With aspect ratio and quality suffix
+</ParamField>
+
+<ParamField body="prompt" type="string" required>
+  Text description of the image to generate
+  
+  <Info>
+    Be descriptive! Include style, mood, composition, and details for best results.
+  </Info>
+</ParamField>
+
+<ParamField body="size" type="string">
+  Image size in `WIDTHxHEIGHT` format or aspect ratio:
+  - **Exact dimensions**: `1920x1080`, `1024x1024`, `1280x720`
+  - **Aspect ratios**: `16:9`, `9:16`, `4:3`, `3:4`, `21:9`, `1:1`
+  
+  Auto-calculates aspect ratio from exact dimensions.
+  
+  Default: `1024x1024` (1:1 aspect ratio)
+</ParamField>
+
+<ParamField body="quality" type="string">
+  Image quality level:
+  - `hd` - 4K resolution (highest quality)
+  - `medium` - 2K resolution
+  - `standard` - Default resolution (1K)
+  
+  Default: `standard`
+</ParamField>
+
+<ParamField body="imageSize" type="string">
+  Direct Gemini native resolution parameter (takes precedence over `quality`):
+  - `4K` - 4096px maximum dimension
+  - `2K` - 2048px maximum dimension  
+  - `1K` - 1024px maximum dimension
+  
+  <Warning>
+    `imageSize` has higher priority than `quality`. If both are set, `imageSize` is used.
+  </Warning>
+</ParamField>
+
+<ParamField body="n" type="integer">
+  Number of images to generate (1-10)
+  
+  Default: `1`
+</ParamField>
+
+<ParamField body="response_format" type="string">
+  Response format:
+  - `b64_json` - Base64-encoded JSON (recommended)
+  - `url` - Data URI format
+  
+  Default: `url`
+</ParamField>
+
+<ParamField body="personGeneration" type="string">
+  Person generation policy:
+  - `allow` - Allow person generation
+  - `deny` - Block person generation
+  
+  Default: `allow`
+</ParamField>
+
+## Response Format
+
+<ResponseField name="created" type="integer">
+  Unix timestamp of generation
+</ResponseField>
+
+<ResponseField name="data" type="array">
+  Array of generated images
+  
+  <Expandable title="Image Object">
+    <ResponseField name="url" type="string">
+      Data URI (if `response_format` is `url`)
+      ```
+      data:image/png;base64,iVBORw0KG...
+      ```
+    </ResponseField>
+    
+    <ResponseField name="b64_json" type="string">
+      Base64-encoded image data (if `response_format` is `b64_json`)
+    </ResponseField>
+    
+    <ResponseField name="revised_prompt" type="string">
+      Enhanced/revised prompt used for generation (if applicable)
+    </ResponseField>
+  </Expandable>
+</ResponseField>
+
+## Example: Basic Generation
+
+```bash
+curl -X POST http://127.0.0.1:8045/v1/images/generations \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-antigravity" \
+  -d '{
+    "model": "gemini-3-pro-image",
+    "prompt": "一座未来主义风格的城市,赛博朋克,霓虹灯",
+    "size": "1920x1080",
+    "quality": "hd",
+    "n": 1,
+    "response_format": "b64_json"
+  }'
+```
+
+## Example: Python SDK
+
+```python
+import openai
+import base64
+
+client = openai.OpenAI(
+    api_key="sk-antigravity",
+    base_url="http://127.0.0.1:8045/v1"
+)
+
+# Generate image
+response = client.images.generate(
+    model="gemini-3-pro-image",
+    prompt="一座未来主义风格的城市,赛博朋克,霓虹灯",
+    size="1920x1080",
+    quality="hd",
+    n=1,
+    response_format="b64_json"
+)
+
+# Save image
+image_data = base64.b64decode(response.data[0].b64_json)
+with open("output.png", "wb") as f:
+    f.write(image_data)
+
+print("Image saved to output.png")
+```
+
+## Example: Multiple Sizes
+
+```python
+import openai
+
+client = openai.OpenAI(
+    api_key="sk-antigravity",
+    base_url="http://127.0.0.1:8045/v1"
+)
+
+# Generate multiple aspect ratios
+sizes = ["1920x1080", "1024x1024", "1080x1920"]
+prompt = "A serene mountain landscape at sunset"
+
+for size in sizes:
+    response = client.images.generate(
+        model="gemini-3-pro-image",
+        prompt=prompt,
+        size=size,
+        quality="hd"
+    )
+    
+    # Save with size in filename
+    import base64
+    img_data = base64.b64decode(response.data[0].b64_json)
+    with open(f"landscape_{size}.png", "wb") as f:
+        f.write(img_data)
+```
+
+## Example: Native imageSize Parameter
+
+```python
+import openai
+
+client = openai.OpenAI(
+    api_key="sk-antigravity",
+    base_url="http://127.0.0.1:8045/v1"
+)
+
+response = client.images.generate(
+    model="gemini-3-pro-image",
+    prompt="A cute cat playing with yarn",
+    size="16:9",
+    imageSize="4K",  # Native Gemini parameter
+    response_format="b64_json"
+)
+```
+
+## Alternative: Chat API Format
+
+You can also generate images via the Chat Completions endpoint:
+
+```python
+import openai
+
+client = openai.OpenAI(
+    api_key="sk-antigravity",
+    base_url="http://127.0.0.1:8045/v1"
+)
+
+# Using chat endpoint for image generation
+response = client.chat.completions.create(
+    model="gemini-3-pro-image",
+    size="1920x1080",
+    quality="hd",
+    messages=[{
+        "role": "user",
+        "content": "一座未来主义风格的城市"
+    }]
+)
+
+print(response.choices[0].message.content)
+```
+
+## Alternative: Claude Messages API Format
+
+```bash
+curl -X POST http://127.0.0.1:8045/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk-antigravity" \
+  -d '{
+    "model": "gemini-3-pro-image",
+    "size": "1280x720",
+    "quality": "hd",
+    "max_tokens": 1024,
+    "messages": [
+      {"role": "user", "content": "一只可爱的猫咪"}
+    ]
+  }'
+```
+
+## Model Suffix Format
+
+You can specify aspect ratio and quality directly in the model name:
+
+```python
+response = client.images.generate(
+    model="gemini-3-pro-image-16-9-4k",  # 16:9 ratio + 4K quality
+    prompt="Futuristic cityscape"
+)
+```
+
+Suffix patterns:
+- **Aspect ratio**: `-16-9`, `-9-16`, `-4-3`, `-3-4`, `-21-9`, `-1-1`
+- **Quality**: `-4k`, `-2k` (no suffix = standard)
+
+Examples:
+- `gemini-3-pro-image-16-9-4k` → 16:9 + 4K
+- `gemini-3-pro-image-1-1-2k` → Square + 2K
+- `gemini-3-pro-image-21-9` → Ultrawide + Standard
+
+## Supported Sizes
+
+### Exact Dimensions
+
+| Size | Aspect Ratio | Use Case |
+|------|--------------|----------|
+| `1024x1024` | 1:1 | Square, social media |
+| `1920x1080` | 16:9 | Widescreen, desktop |
+| `1080x1920` | 9:16 | Mobile, stories |
+| `1280x720` | 16:9 | HD video thumbnail |
+| `2560x1440` | 16:9 | 2K desktop wallpaper |
+| `3840x2160` | 16:9 | 4K wallpaper |
+
+### Aspect Ratios
+
+| Ratio | Description | Common Use |
+|-------|-------------|------------|
+| `1:1` | Square | Instagram posts |
+| `16:9` | Widescreen | YouTube thumbnails |
+| `9:16` | Portrait | TikTok, Reels |
+| `4:3` | Classic | Presentations |
+| `3:4` | Portrait | Pinterest |
+| `21:9` | Ultrawide | Cinema, banners |
+
+## Quality Levels
+
+| Quality | Native Size | Max Dimension | Token Cost |
+|---------|-------------|---------------|------------|
+| `standard` | 1K | 1024px | Low |
+| `medium` | 2K | 2048px | Medium |
+| `hd` | 4K | 4096px | High |
+
+## Parameter Priority
+
+When multiple size/quality parameters are provided:
+
+1. **Highest priority**: `imageSize` parameter (`4K`, `2K`, `1K`)
+2. **Medium priority**: `quality` parameter (`hd`, `medium`, `standard`)
+3. **Lowest priority**: Model suffix (`-4k`, `-2k`)
+
+Example:
+```python
+# imageSize takes precedence
+response = client.images.generate(
+    model="gemini-3-pro-image-2k",  # Suffix: 2K
+    quality="hd",                    # Quality: 4K
+    imageSize="1K",                  # WINS: 1K
+    prompt="Mountain landscape"
+)
+# Actual resolution: 1K (from imageSize)
+```
+
+## Prompt Engineering Tips
+
+### Be Specific
+
+❌ Bad: "A city"
+✅ Good: "A futuristic cyberpunk city at night with neon signs, rain-slicked streets, and flying vehicles"
+
+### Include Style
+
+- Art style: "digital art", "oil painting", "watercolor", "3D render"
+- Artist reference: "in the style of Studio Ghibli", "Greg Rutkowski style"
+- Mood: "moody", "vibrant", "minimalist", "dramatic lighting"
+
+### Structure
+
+Good prompt structure:
+1. **Subject**: What to generate
+2. **Style**: Artistic style/medium
+3. **Details**: Colors, composition, lighting
+4. **Quality**: "highly detailed", "8k", "photorealistic"
+
+Example:
+```
+"A majestic dragon perched on a mountain peak, 
+digital art, vibrant sunset colors with purple and orange sky, 
+dramatic backlighting, highly detailed scales, 8k quality"
+```
+
+## Error Handling
+
+```python
+import openai
+
+try:
+    response = client.images.generate(
+        model="gemini-3-pro-image",
+        prompt="Test image",
+        size="1920x1080"
+    )
+except openai.APIError as e:
+    print(f"API Error: {e}")
+except openai.AuthenticationError as e:
+    print(f"Authentication failed: {e}")
+```
+
+## Quota Management
+
+Image generation consumes quota from the configured account. Antigravity Manager:
+
+- Automatically refreshes quota after successful generation
+- Rotates accounts when quota is exhausted
+- Displays real-time quota in the dashboard
+
+## Features
+
+- **Flexible Sizing**: Supports both exact dimensions and aspect ratios
+- **Quality Control**: Three quality levels (1K/2K/4K)
+- **Multi-format**: Base64 JSON or Data URI output
+- **Batch Generation**: Generate up to 10 images per request
+- **Auto Quota Refresh**: Real-time quota updates
+- **Multiple Protocols**: Works with OpenAI, Claude, and Chat APIs
+- **Smart Defaults**: Sensible defaults for quick testing
+
+## Limitations
+
+- Maximum 10 images per request (`n` parameter)
+- Custom sizes auto-mapped to supported aspect ratios
+- Person generation controlled by safety settings
+- Quota varies by account tier (Pro/Ultra/Free)

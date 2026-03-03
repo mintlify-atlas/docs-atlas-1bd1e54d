@@ -1,0 +1,260 @@
+---
+title: 'Model Routing & Mapping'
+description: 'Configure custom model routing and mapping rules'
+icon: 'route'
+---
+
+## Overview
+
+Model mapping allows you to route API requests for specific models (like GPT-4 or Claude) to your preferred Google AI models.
+
+## Configuration
+
+### Custom Mapping
+
+<ParamField path="custom_mapping" type="object" default="{}">
+  Custom exact model mapping table
+  
+  Maps incoming model names to target Google AI models.
+  
+  **Type**: `HashMap<String, String>`  
+  **Location**: `config.rs:491`
+</ParamField>
+
+## Mapping Examples
+
+### Basic Mapping
+
+Route GPT-4 requests to Gemini Pro:
+
+```json
+{
+  "proxy": {
+    "custom_mapping": {
+      "gpt-4": "gemini-3.1-pro-high",
+      "gpt-4o": "gemini-3-flash",
+      "gpt-3.5-turbo": "gemini-2.5-flash"
+    }
+  }
+}
+```
+
+### Wildcard Mapping
+
+Use wildcards for pattern matching:
+
+```json
+{
+  "proxy": {
+    "custom_mapping": {
+      "gpt-4*": "gemini-3.1-pro-high",
+      "claude-3-opus-*": "claude-opus-4-6-thinking",
+      "claude-3-5-sonnet-*": "claude-sonnet-4-6"
+    }
+  }
+}
+```
+
+## Preset Configurations
+
+Antigravity provides built-in presets for common use cases:
+
+### Default Preset
+
+Balanced performance and cost:
+
+```json
+{
+  "gpt-4*": "gemini-3.1-pro-high",
+  "gpt-4o*": "gemini-3-flash",
+  "gpt-3.5*": "gemini-2.5-flash",
+  "o1-*": "gemini-3.1-pro-high",
+  "o3-*": "gemini-3.1-pro-high",
+  "claude-3-5-sonnet-*": "claude-sonnet-4-6",
+  "claude-3-opus-*": "claude-opus-4-6-thinking",
+  "claude-haiku-*": "gemini-2.5-flash"
+}
+```
+
+### Performance Preset
+
+Maximum quality, higher cost:
+
+```json
+{
+  "gpt-4*": "claude-opus-4-6-thinking",
+  "gpt-4o*": "claude-sonnet-4-6",
+  "gpt-3.5*": "gemini-3-flash",
+  "o1-*": "claude-opus-4-6-thinking",
+  "claude-3-5-sonnet-*": "claude-sonnet-4-6",
+  "claude-3-opus-*": "claude-opus-4-6-thinking"
+}
+```
+
+### Cost-Effective Preset
+
+Minimum cost, good performance:
+
+```json
+{
+  "gpt-4*": "gemini-3-flash",
+  "gpt-4o*": "gemini-2.5-flash",
+  "gpt-3.5*": "gemini-2.5-flash",
+  "o1-*": "gemini-3-flash",
+  "claude-3-5-sonnet-*": "gemini-3-flash",
+  "claude-3-opus-*": "gemini-3-flash"
+}
+```
+
+## z.ai Provider Integration
+
+Route Claude requests to z.ai (GLM models):
+
+<ParamField path="zai.enabled" type="boolean" default="false">
+  Enable z.ai provider integration
+  
+  **Location**: `config.rs:227`
+</ParamField>
+
+<ParamField path="zai.base_url" type="string" default="https://api.z.ai/api/anthropic">
+  z.ai API base URL
+  
+  **Location**: `config.rs:228-229`
+</ParamField>
+
+<ParamField path="zai.api_key" type="string" required>
+  z.ai API key
+  
+  **Location**: `config.rs:231`
+</ParamField>
+
+<ParamField path="zai.dispatch_mode" type="enum" default="off">
+  How to dispatch requests to z.ai
+  
+  **Options**:
+  - `off`: Never use z.ai
+  - `exclusive`: Use z.ai for all Anthropic protocol requests
+  - `pooled`: Treat z.ai as one slot in the shared pool
+  - `fallback`: Use z.ai only when Google pool is unavailable
+  
+  **Location**: `config.rs:161-175`
+</ParamField>
+
+### z.ai Model Mapping
+
+<ParamField path="zai.model_mapping" type="object" default="{}">
+  Per-model overrides for z.ai routing
+  
+  Maps Claude model IDs to z.ai model IDs.
+  
+  **Type**: `HashMap<String, String>`  
+  **Location**: `config.rs:236-237`
+</ParamField>
+
+<ParamField path="zai.models.opus" type="string" default="glm-4.7">
+  Default z.ai model for Opus family
+  
+  **Location**: `config.rs:182`
+</ParamField>
+
+<ParamField path="zai.models.sonnet" type="string" default="glm-4.7">
+  Default z.ai model for Sonnet family
+  
+  **Location**: `config.rs:185`
+</ParamField>
+
+<ParamField path="zai.models.haiku" type="string" default="glm-4.5-air">
+  Default z.ai model for Haiku family
+  
+  **Location**: `config.rs:188`
+</ParamField>
+
+### z.ai Configuration Example
+
+```json
+{
+  "proxy": {
+    "zai": {
+      "enabled": true,
+      "base_url": "https://api.z.ai/api/anthropic",
+      "api_key": "sk-zai-key...",
+      "dispatch_mode": "fallback",
+      "model_mapping": {
+        "claude-3-opus": "glm-4.7",
+        "claude-3-sonnet": "glm-4.7"
+      },
+      "models": {
+        "opus": "glm-4.7",
+        "sonnet": "glm-4.7",
+        "haiku": "glm-4.5-air"
+      }
+    }
+  }
+}
+```
+
+## Advanced Features
+
+### MCP (Model Context Protocol)
+
+Enable advanced capabilities for z.ai models:
+
+<ParamField path="zai.mcp.enabled" type="boolean" default="false">
+  Enable MCP features
+  
+  **Location**: `config.rs:203`
+</ParamField>
+
+<ParamField path="zai.mcp.web_search_enabled" type="boolean" default="false">
+  Enable web search capability
+  
+  **Location**: `config.rs:205`
+</ParamField>
+
+<ParamField path="zai.mcp.web_reader_enabled" type="boolean" default="false">
+  Enable web content reading
+  
+  **Location**: `config.rs:207`
+</ParamField>
+
+<ParamField path="zai.mcp.vision_enabled" type="boolean" default="false">
+  Enable vision/image understanding
+  
+  **Location**: `config.rs:209`
+</ParamField>
+
+## UI Configuration
+
+You can configure model mappings through the Web UI:
+
+1. Navigate to **API Proxy** settings
+2. Expand the **Model Router** section
+3. Select a preset or create custom mappings
+4. Click **Apply** to activate
+
+Changes take effect immediately without restarting the proxy service.
+
+## Best Practices
+
+<Note>
+  - Test mappings with a small request before production use
+  - Use wildcards (`*`) for flexible pattern matching
+  - Consider cost vs. performance when choosing target models
+  - Save custom mappings as presets for easy switching
+  - Monitor token usage after changing mappings
+</Note>
+
+## Troubleshooting
+
+### Mapping Not Applied
+
+1. Verify the exact model name from client requests
+2. Check wildcard pattern syntax
+3. Ensure proxy service is running
+4. Review debug logs for routing decisions
+
+### Model Not Found
+
+1. Confirm target model exists in your accounts
+2. Check model availability in your region
+3. Verify account quota hasn't been exhausted

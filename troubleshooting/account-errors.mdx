@@ -1,0 +1,441 @@
+---
+title: Account Error Handling
+description: Troubleshoot authentication and authorization errors (403, 401, token expiry)
+---
+
+## Overview
+
+Antigravity Manager automatically handles many account errors, but some require manual intervention. This page covers the most common account-related errors and their solutions.
+
+## Error Types
+
+### HTTP Status Codes
+
+- **401 Unauthorized** - Authentication failed, token expired or invalid
+- **403 Forbidden** - Account lacks required permissions or is blocked
+- **429 Too Many Requests** - Rate limit exceeded (auto-retries)
+- **404 Not Found** - Project or resource not found
+- **503 Service Unavailable** - Temporary service issues (auto-retries)
+
+## 403 Forbidden Errors
+
+<Warning>
+403 errors indicate your account has been restricted or doesn't have the required permissions.
+</Warning>
+
+### Common Causes
+
+1. **Account requires verification**
+2. **Geographic restrictions**
+3. **Service terms violation**
+4. **Temporary risk control (VALIDATION_REQUIRED)**
+5. **Project permissions issue**
+
+### Automatic Handling
+
+When a 403 error occurs, Antigravity Manager automatically:
+
+1. **Marks the account as forbidden** (`is_forbidden: true`)
+2. **Removes it from the active pool** to prevent repeated failures
+3. **Attempts to switch to the next available account**
+4. **Returns 503 instead of 403** to prevent client disconnection (for Claude Code)
+
+<Info>
+From the source code (`proxy/handlers/claude.rs:1277-1298`):
+```rust
+if status_code == 403 {
+    if error_text.contains("VALIDATION_REQUIRED") {
+        // Temporarily block account for 10 minutes
+        tracing::warn!("[Claude] VALIDATION_REQUIRED detected on account {}, temporarily blocking");
+    }
+    tracing::warn!("[Claude] Account {} marked as forbidden due to 403", email);
+}
+```
+</Info>
+
+### Solutions
+
+<AccordionGroup>
+  <Accordion title="Check for verification links">
+    **How to find:**
+    1. Go to the Accounts page
+    2. Click on the disabled account
+    3. Look for error details containing "To continue, verify your account at..."
+    4. Click the verification link to complete Google's verification process
+
+    **What to expect:**
+    - Google may ask you to verify your phone number
+    - You may need to complete a CAPTCHA
+    - Some accounts may require additional identity verification
+  </Accordion>
+
+  <Accordion title="Confirm Google One AI Plan eligibility">
+    **Check your eligibility:**
+    1. Visit the [FAQ page](https://antigravity.google/docs/faq#why-am-i-ineligible-for-a-google-one-ai-plan)
+    2. Ensure your account meets the requirements:
+       - Active Google One subscription (if required)
+       - Account in good standing
+       - Correct geographic region
+
+    **For Gemini Code Assist:**
+    - Verify you have access to Vertex AI
+    - Check project permissions in Google Cloud Console
+  </Accordion>
+
+  <Accordion title="Wait for automatic recovery">
+    **Temporary blocks:**
+    
+    Some 403 errors are temporary (e.g., `VALIDATION_REQUIRED`):
+    - The system automatically blocks the account for **10 minutes**
+    - After the block expires, the account is retried
+    - If the issue persists, manual intervention is required
+
+    **Risk control cooldown:**
+    - Google may temporarily restrict accounts that trigger automated abuse detection
+    - These typically resolve within 24-48 hours
+    - Reduce request frequency to avoid future blocks
+  </Accordion>
+
+  <Accordion title="Re-authorize the account">
+    **Steps:**
+    1. Navigate to the Accounts page
+    2. Find the forbidden account (marked with 🚫)
+    3. Click "Delete" to remove the account
+    4. Add the account again:
+       - Click "Add Account" → "OAuth"
+       - Copy the authorization link
+       - Complete OAuth flow in your browser
+       - Wait for "Authorization successful" message
+
+    <Tip>
+    Re-authorization refreshes all tokens and can resolve stale permission issues.
+    </Tip>
+  </Accordion>
+
+  <Accordion title="Check account details for specific errors">
+    **View detailed error information:**
+    1. Go to Accounts page
+    2. Click on the account card
+    3. Look for:
+       - `disabled_reason`: Why the account was disabled
+       - `proxy_disabled_reason`: Specific 403 reason
+       - `validation_blocked`: Temporary block status
+       - Detection timestamp
+
+    **Common error messages:**
+    - `"invalid_grant"` - Refresh token revoked or expired
+    - `"VALIDATION_REQUIRED"` - Google requires additional verification
+    - `"Forbidden (403): quota fetch denied"` - No permission to access quotas
+  </Accordion>
+</AccordionGroup>
+
+## 401 Unauthorized Errors
+
+### Common Causes
+
+1. **Expired access token** (auto-refreshed)
+2. **Revoked refresh token** (requires re-authorization)
+3. **Invalid OAuth credentials**
+4. **Token not yet active**
+
+### Automatic Handling
+
+When a 401 error occurs:
+
+1. **Automatic token refresh** is attempted first
+2. **If refresh fails**, the account is marked as disabled
+3. **Account rotation** to the next available account
+4. **Short retry delay** (200ms) before switching
+
+<Info>
+From the source code (`modules/account.rs:1502-1524`):
+```rust
+if code == 401 {
+    tracing::warn!("401 Unauthorized for {}, forcing refresh...");
+    // Attempt to refresh the token
+    if let Err(e) = refresh_access_token(account_id) {
+        if e.contains("invalid_grant") {
+            // Disable account permanently
+            account.disabled_reason = Some(format!("invalid_grant: {}", e));
+        }
+    }
+}
+```
+</Info>
+
+### Solutions
+
+<AccordionGroup>
+  <Accordion title="Wait for automatic refresh">
+    **When a 401 occurs:**
+    - Antigravity automatically attempts to refresh the access token
+    - This happens in the background without user intervention
+    - Most 401 errors are resolved within seconds
+
+    **Monitor in Debug Console:**
+    - Settings → About → Debug Console
+    - Look for "forcing refresh" messages
+    - Check if refresh succeeds or fails
+  </Accordion>
+
+  <Accordion title="Handle invalid_grant errors">
+    **What is invalid_grant?**
+    
+    This error means your refresh token has been:
+    - Revoked by Google (security reasons)
+    - Expired (typically after 6 months of inactivity)
+    - Invalidated due to password change
+    - Used in too many applications simultaneously
+
+    **Solution:**
+    <Warning>
+    `invalid_grant` errors cannot be automatically fixed. Manual re-authorization is required.
+    </Warning>
+
+    1. **Remove the account:**
+       - Go to Accounts page
+       - Delete the affected account
+
+    2. **Re-authorize:**
+       - Add the account again via OAuth
+       - Complete the authorization flow
+       - New refresh token will be issued
+
+    **Prevention:**
+    - Don't share Google accounts across multiple Antigravity instances
+    - Don't change your Google password frequently
+    - Keep accounts actively used
+  </Accordion>
+
+  <Accordion title="Verify OAuth setup">
+    **Check OAuth configuration:**
+    
+    1. **Ensure authorization link is current:**
+       - When adding an account, always use the newly generated link
+       - Don't reuse old authorization links
+
+    2. **Complete OAuth flow:**
+       - After clicking "Authorize", you should see a browser callback
+       - Wait for "Authorization successful" message
+       - Don't close the window prematurely
+
+    3. **Verify tokens are saved:**
+       ```bash
+       # Check account files
+       ls ~/.antigravity_tools/accounts/
+       
+       # View account JSON (check for access_token and refresh_token)
+       cat ~/.antigravity_tools/accounts/<account-id>.json
+       ```
+  </Accordion>
+</AccordionGroup>
+
+## Token Expiry Issues
+
+### Understanding Token Lifecycle
+
+- **Access Token**: Valid for ~1 hour, automatically refreshed
+- **Refresh Token**: Valid for months, used to get new access tokens
+- **Session Token**: Temporary, for sticky sessions
+
+### Automatic Refresh Mechanism
+
+<Info>
+Antigravity Manager automatically refreshes access tokens before they expire using the refresh token.
+</Info>
+
+**Refresh intervals:**
+- **Background refresh**: Every 5 minutes (configurable)
+- **On-demand refresh**: When 401 is encountered
+- **Pre-emptive refresh**: 5 minutes before expiry
+
+### Manual Token Management
+
+<AccordionGroup>
+  <Accordion title="Force token refresh">
+    **Refresh a single account:**
+    1. Go to Accounts page
+    2. Click on the account card
+    3. Click the refresh icon
+    4. Wait for quota to update
+
+    **Refresh all accounts:**
+    1. Go to Accounts page
+    2. Click "Refresh All" button
+    3. Monitor progress in the notification
+
+    **Via API (for Docker/Headless):**
+    ```bash
+    curl -X POST http://localhost:8045/api/accounts/refresh-all \
+      -H "Authorization: Bearer <your-api-key>"
+    ```
+  </Accordion>
+
+  <Accordion title="Check token expiry times">
+    **View token details:**
+    ```bash
+    # Read account file
+    cat ~/.antigravity_tools/accounts/<account-id>.json | jq '.expires_at'
+    ```
+
+    **In the UI:**
+    - Click on an account card
+    - Look for "Last synced" timestamp
+    - This indicates when tokens were last refreshed
+  </Accordion>
+
+  <Accordion title="Handle expired refresh tokens">
+    **Symptoms:**
+    - Account keeps getting disabled
+    - `invalid_grant` error in logs
+    - Cannot refresh access token
+
+    **Solution:**
+    <Warning>
+    Expired refresh tokens require complete re-authorization.
+    </Warning>
+
+    1. Delete the account
+    2. Clear any cached credentials:
+       ```bash
+       # Remove account file
+       rm ~/.antigravity_tools/accounts/<account-id>.json
+       ```
+    3. Add the account fresh via OAuth
+  </Accordion>
+</AccordionGroup>
+
+## 404 Project Not Found
+
+<Warning>
+This error usually indicates a Google Cloud project configuration issue.
+</Warning>
+
+### Common Causes
+
+1. **Invalid project ID**
+2. **Project deleted or moved**
+3. **Insufficient permissions to access project**
+4. **Project not enabled for Vertex AI**
+
+### Solutions
+
+<AccordionGroup>
+  <Accordion title="Verify project exists">
+    **Check in Google Cloud Console:**
+    1. Visit [Google Cloud Console](https://console.cloud.google.com/)
+    2. Check the project selector
+    3. Search for the project ID mentioned in the error
+    4. If not found, the project may have been deleted
+
+    **Create new project if needed:**
+    1. Click "Create Project" in Google Cloud Console
+    2. Enable required APIs:
+       - Vertex AI API
+       - Gemini API
+    3. Wait for API enablement to complete
+  </Accordion>
+
+  <Accordion title="Fix empty or invalid project ID">
+    **From the source code (`modules/account.rs:1580-1592`):**
+    
+    Antigravity automatically handles empty project IDs by:
+    - Detecting when `project_id` is empty
+    - Falling back to a stable default: `bamboo-precept-lgxtn`
+    - Re-fetching quota with the fallback project
+
+    **Manual fix:**
+    1. Go to Accounts page
+    2. Delete account with invalid project
+    3. Re-add the account
+    4. System will auto-detect or use stable fallback
+  </Accordion>
+
+  <Accordion title="Enable Vertex AI API">
+    **Enable required APIs:**
+    ```bash
+    # Using gcloud CLI
+    gcloud services enable aiplatform.googleapis.com
+    gcloud services enable generativelanguage.googleapis.com
+    ```
+
+    **Or via Console:**
+    1. Go to [API Library](https://console.cloud.google.com/apis/library)
+    2. Search for "Vertex AI API"
+    3. Click "Enable"
+    4. Repeat for "Gemini API"
+  </Accordion>
+</AccordionGroup>
+
+## Account Management Best Practices
+
+### Preventing Issues
+
+1. **Don't share accounts across instances:**
+   - Using the same Google account in multiple Antigravity instances can cause token conflicts
+   - Each instance should have dedicated accounts
+
+2. **Monitor account health:**
+   - Regularly check the Dashboard for quota status
+   - Set up background auto-refresh (Settings → Background Tasks)
+   - Enable quota protection to prevent overuse
+
+3. **Respond to errors promptly:**
+   - Check disabled accounts daily
+   - Re-authorize accounts when `invalid_grant` occurs
+   - Complete verification prompts immediately
+
+4. **Use proxy pools for sensitive accounts:**
+   - Assign specific proxies to accounts
+   - Rotate IPs to avoid rate limits
+   - See Settings → Proxy Pool
+
+### Monitoring Account Status
+
+**Account states:**
+- ✅ **Active**: Working normally
+- ⏸️ **Disabled**: Manually disabled by user
+- 🚫 **Forbidden**: Blocked due to 403 error
+- ⚠️ **Validation Blocked**: Temporary block (10 minutes)
+- 🔄 **Syncing**: Refreshing quota
+
+**Check account status:**
+```bash
+# View account index
+cat ~/.antigravity_tools/accounts/index.json | jq .
+
+# Check for disabled accounts
+cat ~/.antigravity_tools/accounts/index.json | jq '.[] | select(.disabled == true)'
+```
+
+## Debugging Account Errors
+
+For advanced debugging techniques, see the [Debugging Guide](/troubleshooting/debugging).
+
+### Quick Debugging Steps
+
+1. **Check logs for error details:**
+   ```bash
+   tail -f ~/.antigravity_tools/logs/app.log | grep -i "error\|403\|401"
+   ```
+
+2. **Enable debug console:**
+   - Settings → About → Debug Console
+   - Monitor real-time request/response logs
+
+3. **Verify account file integrity:**
+   ```bash
+   # Check if account JSON is valid
+   cat ~/.antigravity_tools/accounts/<account-id>.json | jq .
+   ```
+
+4. **Test OAuth flow manually:**
+   - Add a test account
+   - Watch the browser callback
+   - Check for any errors in browser console
+
+## Related Resources
+
+- [Common Issues](/troubleshooting/common-issues) - General troubleshooting
+- [Debugging Guide](/troubleshooting/debugging) - Advanced debugging techniques
+- [API Documentation](https://github.com/lbjlaq/Antigravity-Manager) - Understanding API errors

@@ -1,80 +1,543 @@
 ---
-title: "Quickstart"
-description: "Start building awesome documentation in minutes"
+title: Quick Start Guide
+description: Get started with Antigravity Manager - from adding your first account to making your first API call
 ---
 
-## Get started in three steps
+# Quick Start Guide
 
-Get your documentation site running locally and make your first customization.
+This guide will walk you through the essential steps to get Antigravity Manager up and running, from adding your first account to making your first successful API call.
 
-### Step 1: Set up your local environment
+## Prerequisites
 
-<AccordionGroup>
-  <Accordion icon="copy" title="Clone your docs locally">
-    During the onboarding process, you created a GitHub repository with your docs content if you didn't already have one. You can find a link to this repository in your [dashboard](https://dashboard.mintlify.com).
-    
-    To clone the repository locally so that you can make and preview changes to your docs, follow the [Cloning a repository](https://docs.github.com/en/repositories/creating-and-managing-repositories/cloning-a-repository) guide in the GitHub docs.
-  </Accordion>
-  <Accordion icon="rectangle-terminal" title="Start the preview server">
-    1. Install the Mintlify CLI: `npm i -g mint`
-    2. Navigate to your docs directory and run: `mint dev`
-    3. Open `http://localhost:3000` to see your docs live!
-    
-    <Tip>Your preview updates automatically as you edit files.</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 2: Deploy your changes
-
-<AccordionGroup>
-  <Accordion icon="github" title="Install our GitHub app">
-    Install the Mintlify GitHub app from your [dashboard](https://dashboard.mintlify.com/settings/organization/github-app).
-    
-    Our GitHub app automatically deploys your changes to your docs site, so you don't need to manage deployments yourself.
-</Accordion>
-<Accordion icon="palette" title="Update your site name and colors">
-    For a first change, let's update the name and colors of your docs site.
-
-    1. Open `docs.json` in your editor.
-    2. Change the `"name"` field to your project name.
-    3. Update the `"colors"` to match your brand.
-    4. Save and see your changes instantly at `http://localhost:3000`.
-
-    <Tip>Try changing the primary color to see an immediate difference!</Tip>
-  </Accordion>
-</AccordionGroup>
-
-### Step 3: Go live
-
-<Accordion icon="rocket" title="Publish your docs">
-  1. Commit and push your changes.
-  2. Your docs will update and be live in moments!
-</Accordion>
-
-## Next steps
-
-Now that you have your docs running, explore these key features:
+Before you begin, ensure you have:
 
 <CardGroup cols={2}>
-
-<Card title="Write Content" icon="pen-to-square" href="/essentials/markdown">
-  Learn MDX syntax and start writing your documentation.
-</Card>
-
-<Card title="Customize style" icon="palette" href="/essentials/settings">
-  Make your docs match your brand perfectly.
-</Card>
-
-<Card title="Add code examples" icon="square-code" href="/essentials/code">
-  Include syntax-highlighted code blocks.
-</Card>
-
-<Card title="API documentation" icon="code" href="/api-reference/introduction">
-  Auto-generate API docs from OpenAPI specs.
-</Card>
-
+  <Card title="Antigravity Manager Installed" icon="check">
+    Follow the [Installation Guide](/installation) if you haven't installed it yet
+  </Card>
+  
+  <Card title="Google Account" icon="google">
+    A Google account with access to Gemini API or Google One AI Premium
+  </Card>
 </CardGroup>
 
+## Step 1: Launch Antigravity Manager
+
+<Steps>
+  <Step title="Start the Application">
+    - **Desktop**: Launch "Antigravity Tools" from your application menu
+    - **Docker**: Navigate to `http://localhost:8045` in your browser
+  </Step>
+  
+  <Step title="Set Your API Key">
+    Go to **API Proxy** → **Settings** and set your preferred API key. This key will be used to authenticate all API requests.
+    
+    ```bash
+    # Example API key format
+    sk-antigravity
+    ```
+    
+    <Warning>
+      Remember this key - you'll need it for all API calls!
+    </Warning>
+  </Step>
+  
+  <Step title="Start the Proxy Service">
+    In the **API Proxy** tab, click the toggle to start the local proxy server. The default address is:
+    
+    ```
+    http://127.0.0.1:8045
+    ```
+  </Step>
+</Steps>
+
+## Step 2: Add Your First Account
+
+Antigravity Manager supports multiple methods for adding accounts. OAuth 2.0 is recommended for the best experience.
+
+### OAuth 2.0 Authorization (Recommended)
+
+<Steps>
+  <Step title="Navigate to Accounts">
+    Click on **Accounts** in the sidebar, then click **Add Account** → **OAuth**
+  </Step>
+  
+  <Step title="Copy Authorization URL">
+    The dialog will pre-generate an authorization URL. Click the link to copy it to your clipboard.
+    
+    <Note>
+      The authorization URL contains a one-time local callback port. Always use the latest URL shown in the dialog.
+    </Note>
+  </Step>
+  
+  <Step title="Complete Authorization">
+    1. Open the copied URL in your preferred browser
+    2. Sign in with your Google account
+    3. Grant the requested permissions
+    4. Wait for the browser to show "✅ Authorized successfully!"
+  </Step>
+  
+  <Step title="Finalize in Antigravity">
+    The application should automatically detect the authorization and save your account. If not, click **"I already authorized, continue"** to finish manually.
+  </Step>
+</Steps>
+
+<Warning>
+  If the application isn't running or the dialog is closed during authorization, the browser may show `localhost refused connection`. Simply restart the OAuth flow from Step 1.
+</Warning>
+
+### Alternative: Token Import
+
+If you already have tokens from another tool:
+
+<Tabs>
+  <Tab title="Single Token">
+    1. Click **Add Account** → **Token**
+    2. Paste your token
+    3. Click **Save**
+  </Tab>
+  
+  <Tab title="Batch JSON Import">
+    1. Click **Add Account** → **Import JSON**
+    2. Upload a JSON file containing account data
+    3. Accounts will be imported automatically
+  </Tab>
+</Tabs>
+
+## Step 3: Verify Account Status
+
+After adding your account:
+
+<Steps>
+  <Step title="Check Account List">
+    Your account should appear in the **Accounts** page with:
+    - ✅ Active status
+    - Current quota percentage for each model
+    - Last synchronization time
+  </Step>
+  
+  <Step title="View Dashboard">
+    Navigate to **Dashboard** to see:
+    - Average remaining quota across all accounts
+    - Best account recommendations
+    - Active account snapshot
+  </Step>
+  
+  <Step title="Refresh Quota">
+    Click **Refresh** next to your account to sync the latest quota information from Google.
+  </Step>
+</Steps>
+
+<Tip>
+  Antigravity Manager automatically detects and marks accounts with 403 Forbidden status, skipping them in routing.
+</Tip>
+
+## Step 4: Make Your First API Call
+
+Now that your account is configured, let's make your first API call. Choose your preferred integration method:
+
+### Using Python
+
+The most straightforward way to test the integration:
+
+<CodeGroup>
+
+```python Basic Chat
+import openai
+
+client = openai.OpenAI(
+    api_key="sk-antigravity",  # Your API key from Step 1
+    base_url="http://127.0.0.1:8045/v1"
+)
+
+response = client.chat.completions.create(
+    model="gemini-3-flash",
+    messages=[{"role": "user", "content": "Hello, please introduce yourself"}]
+)
+
+print(response.choices[0].message.content)
+```
+
+```python Image Generation
+import openai
+import base64
+
+client = openai.OpenAI(
+    api_key="sk-antigravity",
+    base_url="http://127.0.0.1:8045/v1"
+)
+
+# Generate image
+response = client.images.generate(
+    model="gemini-3-pro-image",
+    prompt="A futuristic cyberpunk city with neon lights",
+    size="1920x1080",      # Supports any WIDTHxHEIGHT format
+    quality="hd",          # "standard" | "hd" | "medium"
+    n=1,
+    response_format="b64_json"
+)
+
+# Save image
+image_data = base64.b64decode(response.data[0].b64_json)
+with open("output.png", "wb") as f:
+    f.write(image_data)
+```
+
+```python Streaming
+import openai
+
+client = openai.OpenAI(
+    api_key="sk-antigravity",
+    base_url="http://127.0.0.1:8045/v1"
+)
+
+stream = client.chat.completions.create(
+    model="gemini-3-flash",
+    messages=[{"role": "user", "content": "Tell me a story"}],
+    stream=True
+)
+
+for chunk in stream:
+    if chunk.choices[0].delta.content:
+        print(chunk.choices[0].delta.content, end="")
+```
+
+</CodeGroup>
+
+### Using Claude Code CLI
+
+Integrate with the official Claude Code command-line interface:
+
+<Steps>
+  <Step title="Set Environment Variables">
+    ```bash
+    export ANTHROPIC_API_KEY="sk-antigravity"
+    export ANTHROPIC_BASE_URL="http://127.0.0.1:8045"
+    ```
+  </Step>
+  
+  <Step title="Run Claude">
+    ```bash
+    claude
+    ```
+    
+    You should now be able to interact with Claude through Antigravity Manager's proxy.
+  </Step>
+</Steps>
+
+### Using OpenCode
+
+Antigravity Manager includes built-in OpenCode synchronization:
+
+<Steps>
+  <Step title="Navigate to OpenCode Sync">
+    Go to **API Proxy** → **External Providers** → **OpenCode Sync**
+  </Step>
+  
+  <Step title="Click Sync Button">
+    This automatically generates `~/.config/opencode/opencode.json` with:
+    - Dedicated provider `antigravity-manager` (doesn't overwrite google/anthropic)
+    - Optional: Check **Sync accounts** to export account data
+  </Step>
+  
+  <Step title="Test the Integration">
+    ```bash
+    # Test antigravity-manager provider (supports --variant)
+    opencode run "test" --model antigravity-manager/claude-sonnet-4-5-thinking --variant high
+    
+    # If opencode-antigravity-auth is installed, google provider still works independently
+    opencode run "test" --model google/antigravity-claude-sonnet-4-5-thinking --variant max
+    ```
+  </Step>
+</Steps>
+
 <Note>
-  **Need help?** See our [full documentation](https://mintlify.com/docs) or join our [community](https://mintlify.com/community).
+  **Windows Users**: The config path is `C:\Users\<User>\.config\opencode\` following the same `~/.config/opencode` convention.
 </Note>
+
+### Using cURL
+
+Test the API directly with HTTP requests:
+
+<CodeGroup>
+
+```bash Chat Completion
+curl -X POST http://127.0.0.1:8045/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-antigravity" \
+  -d '{
+    "model": "gemini-3-flash",
+    "messages": [
+      {"role": "user", "content": "What is the capital of France?"}
+    ]
+  }'
+```
+
+```bash Anthropic Format
+curl -X POST http://127.0.0.1:8045/v1/messages \
+  -H "Content-Type: application/json" \
+  -H "x-api-key: sk-antigravity" \
+  -d '{
+    "model": "gemini-3-flash",
+    "messages": [
+      {"role": "user", "content": "Hello, Claude!"}
+    ]
+  }'
+```
+
+```bash Image Generation
+curl -X POST http://127.0.0.1:8045/v1/images/generations \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer sk-antigravity" \
+  -d '{
+    "model": "gemini-3-pro-image",
+    "prompt": "A cute cat",
+    "size": "1280x720",
+    "quality": "hd",
+    "n": 1
+  }'
+```
+
+</CodeGroup>
+
+## Understanding Model Names
+
+Antigravity Manager provides flexible model naming for different use cases:
+
+### Available Models
+
+<Tabs>
+  <Tab title="Chat Models">
+    | Model Name | Description | Use Case |
+    |------------|-------------|----------|
+    | `gemini-3-flash` | Fast, efficient model | Quick queries, high-volume |
+    | `gemini-3-pro-high` | Advanced reasoning | Complex tasks |
+    | `gemini-3.1-pro` | Latest Gemini Pro | Production workloads |
+    | `claude-sonnet-4-6` | Claude 4.6 Sonnet | Balanced performance |
+    | `claude-sonnet-4-6-thinking` | With thinking mode | Complex reasoning |
+    | `claude-opus-4-6-thinking` | Most capable model | Advanced tasks |
+  </Tab>
+  
+  <Tab title="Image Models">
+    | Model Name | Description |
+    |------------|-------------|
+    | `gemini-3-pro-image` | Standard image generation |
+    | `gemini-3.1-flash-image` | Fast image generation |
+    | `gemini-3-pro-image-16-9-4k` | 16:9 aspect ratio, 4K quality |
+    | `gemini-3-pro-image-1-1-2k` | Square, 2K quality |
+  </Tab>
+</Tabs>
+
+### Model Routing
+
+You can configure custom model mappings in **Model Router**:
+
+1. Navigate to **Model Router** in the sidebar
+2. Click **Add Mapping**
+3. Set source model pattern (regex supported)
+4. Set target model
+5. Save and test
+
+<Tip>
+  Use regex patterns like `gpt-4.*` to route all GPT-4 requests to `gemini-3-pro-high`
+</Tip>
+
+## Advanced Features
+
+### Smart Account Switching
+
+Antigravity Manager automatically selects the best account based on:
+- Current quota availability
+- Account tier (Ultra/Pro/Free)
+- Reset frequency
+- 403 forbidden status
+
+View recommendations in the **Dashboard** → **Best Account** section.
+
+### Image Generation Parameters
+
+<ParamField path="size" type="string">
+  Aspect ratio or resolution. Supports:
+  - **Specific dimensions**: `1920x1080`, `1024x1024`, `1280x720`
+  - **Aspect ratios**: `16:9`, `9:16`, `4:3`, `3:4`, `1:1`, `21:9`
+  
+  System automatically maps to standard ratios.
+</ParamField>
+
+<ParamField path="quality" type="string" default="standard">
+  Image quality level:
+  - `"hd"` → 4K resolution
+  - `"medium"` → 2K resolution
+  - `"standard"` → Default resolution
+</ParamField>
+
+<ParamField path="imageSize" type="string">
+  Direct Gemini resolution specification (highest priority):
+  - `"4K"` - 4K resolution
+  - `"2K"` - 2K resolution
+  - `"1K"` - Standard resolution
+  
+  Overrides `quality` parameter if both are set.
+</ParamField>
+
+### Quota Protection
+
+Enable quota protection to prevent account exhaustion:
+
+1. Go to **Settings** → **Quota Protection**
+2. Enable the toggle
+3. Set minimum quota threshold (e.g., 10%)
+4. Antigravity will skip accounts below the threshold
+
+### Background Tasks
+
+Configure automatic account maintenance:
+
+<AccordionGroup>
+  <Accordion title="Auto Refresh">
+    Automatically sync account quotas at regular intervals:
+    - **Settings** → **Background Auto Refresh**
+    - Set interval (in minutes, max 35791)
+    - Recommended: 15-30 minutes
+  </Accordion>
+  
+  <Accordion title="Smart Warmup">
+    Keep accounts active with periodic requests (currently disabled by default in v4.1.24+):
+    - Manual warmup still available in Account Management
+    - To re-enable: modify source code and rebuild
+  </Accordion>
+</AccordionGroup>
+
+## Integration Examples
+
+### Cherry Studio
+
+1. Open Cherry Studio settings
+2. Add a new OpenAI provider:
+   - **Base URL**: `http://127.0.0.1:8045/v1`
+   - **API Key**: `sk-antigravity`
+3. Configure model settings:
+   - **Model**: `gemini-3-pro-image` (for images)
+   - **Size**: `1920x1080`
+   - **Quality**: `hd`
+
+### Kilo Code
+
+<Warning>
+  Use **Gemini protocol** with Kilo Code. OpenAI mode produces non-standard paths (`/v1/chat/completions/responses`) that return 404.
+</Warning>
+
+1. Open Kilo Code settings
+2. Select **Gemini** as protocol
+3. Set **Base URL**: `http://127.0.0.1:8045`
+4. Set **API Key**: `sk-antigravity`
+5. Configure model mappings if needed
+
+## Troubleshooting
+
+<AccordionGroup>
+  <Accordion title="Connection refused to http://127.0.0.1:8045">
+    **Check if proxy service is running**:
+    1. Open Antigravity Manager
+    2. Navigate to **API Proxy**
+    3. Ensure the toggle is ON (green)
+    
+    **Verify port isn't blocked**:
+    ```bash
+    curl http://127.0.0.1:8045/health
+    ```
+  </Accordion>
+  
+  <Accordion title='API returns "Invalid API key"'>
+    **Verify your API key matches**:
+    1. Check **API Proxy** → **Settings** for the configured key
+    2. Ensure your requests use the same key in headers:
+       - OpenAI format: `Authorization: Bearer sk-antigravity`
+       - Anthropic format: `x-api-key: sk-antigravity`
+  </Accordion>
+  
+  <Accordion title='Account shows "403 Forbidden"'>
+    **Possible causes**:
+    1. **Verification required**: Check error details for verification link
+    2. **Plan ineligibility**: Verify your Google account has Gemini access
+    3. **Rate limiting**: Wait and try refreshing quota later
+    
+    **Solution**:
+    - Click on the account to view error details
+    - Follow any verification links provided
+    - Some 403 errors resolve automatically after waiting
+  </Accordion>
+  
+  <Accordion title="Quota shows 0% but account has quota">
+    **Refresh the quota manually**:
+    1. Go to **Accounts**
+    2. Click **Refresh** next to the account
+    3. Wait for synchronization to complete
+    
+    **Enable auto-refresh**:
+    - **Settings** → **Background Auto Refresh**
+    - Set interval to 15-30 minutes
+  </Accordion>
+  
+  <Accordion title='Image generation returns "No accounts available"'>
+    **Check image model quota**:
+    1. Verify accounts have `gemini-3-pro-image` or `gemini-3.1-flash-image` quota
+    2. Dashboard should show non-zero "Gemini Image" average quota
+    3. Refresh account quotas if needed
+    
+    **Common issue (fixed in v4.1.27)**:
+    - Ensure using v4.1.27+ which includes `gemini-3.1-flash-image` support
+    - Earlier versions only recognized `gemini-3-pro-image`
+  </Accordion>
+</AccordionGroup>
+
+## Next Steps
+
+<CardGroup cols={2}>
+  <Card title="Explore Model Router" icon="route">
+    Set up custom model mappings and routing rules for advanced workflows
+  </Card>
+  
+  <Card title="Configure Docker" icon="docker" href="/installation#docker-deployment-nasserver">
+    Deploy Antigravity Manager on your NAS or server for 24/7 availability
+  </Card>
+  
+  <Card title="Join Community" icon="telegram" href="https://t.me/antigravity_tools">
+    Get help, share tips, and stay updated on new features
+  </Card>
+  
+  <Card title="GitHub Repository" icon="github" href="https://github.com/lbjlaq/Antigravity-Manager">
+    Report issues, request features, and contribute to the project
+  </Card>
+</CardGroup>
+
+## Common Use Cases
+
+<AccordionGroup>
+  <Accordion title="Multi-Account Load Balancing">
+    Add multiple Google accounts to:
+    - Increase total quota pool
+    - Automatic failover when one account is rate-limited
+    - Smart routing based on quota availability
+    
+    Antigravity Manager handles rotation automatically.
+  </Accordion>
+  
+  <Accordion title="Development & Testing">
+    Use Antigravity Manager as a local proxy for:
+    - Testing AI integrations without cloud dependencies
+    - Rapid prototyping with multiple model types
+    - Cost-effective development with Gemini's free tier
+  </Accordion>
+  
+  <Accordion title="Team Collaboration">
+    Deploy with Docker and share:
+    - **API_KEY** with team members for AI requests
+    - **WEB_PASSWORD** with admins only for account management
+    - Centralized quota monitoring and account health
+  </Accordion>
+</AccordionGroup>
+
+<Check>
+  **You're all set!** You now have Antigravity Manager configured and ready to proxy AI requests. Experiment with different models, set up custom routing, and explore advanced features.
+</Check>
