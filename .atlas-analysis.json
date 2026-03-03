@@ -1,0 +1,148 @@
+{
+  "projectType": "saas",
+  "projectName": "Antigravity Manager",
+  "projectDescription": "Professional AI account management and protocol proxy system for seamless multi-account switching and API conversion.",
+  "theme": "aspen",
+  "primaryColor": "#8B5CF6",
+  "lightColor": "#A78BFA",
+  "darkColor": "#6D28D9",
+  "navigation": {
+    "tabs": [
+      {
+        "tab": "Documentation",
+        "groups": [
+          {
+            "group": "Getting Started",
+            "pages": [
+              "introduction",
+              "installation",
+              "quickstart"
+            ]
+          },
+          {
+            "group": "Core Features",
+            "pages": [
+              "features/account-management",
+              "features/api-proxy",
+              "features/model-routing",
+              "features/quota-monitoring",
+              "features/image-generation"
+            ]
+          },
+          {
+            "group": "Integration Guides",
+            "pages": [
+              "integrations/claude-code-cli",
+              "integrations/opencode",
+              "integrations/kilo-code",
+              "integrations/cherry-studio",
+              "integrations/python-sdk",
+              "integrations/custom-clients"
+            ]
+          },
+          {
+            "group": "Configuration",
+            "pages": [
+              "configuration/oauth-setup",
+              "configuration/proxy-settings",
+              "configuration/model-mapping",
+              "configuration/rate-limiting",
+              "configuration/security"
+            ]
+          },
+          {
+            "group": "Deployment",
+            "pages": [
+              "deployment/desktop",
+              "deployment/docker",
+              "deployment/docker-compose",
+              "deployment/headless-mode"
+            ]
+          },
+          {
+            "group": "Troubleshooting",
+            "pages": [
+              "troubleshooting/common-issues",
+              "troubleshooting/macos-quarantine",
+              "troubleshooting/account-errors",
+              "troubleshooting/debugging"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "API Reference",
+        "groups": [
+          {
+            "group": "Overview",
+            "pages": [
+              "api/overview",
+              "api/authentication"
+            ]
+          },
+          {
+            "group": "Endpoints",
+            "pages": [
+              "api/openai-format",
+              "api/anthropic-format",
+              "api/gemini-format",
+              "api/image-generation"
+            ]
+          },
+          {
+            "group": "Protocol Conversion",
+            "pages": [
+              "api/request-mapping",
+              "api/response-mapping",
+              "api/streaming",
+              "api/error-handling"
+            ]
+          }
+        ]
+      },
+      {
+        "tab": "Architecture",
+        "groups": [
+          {
+            "group": "System Design",
+            "pages": [
+              "architecture/overview",
+              "architecture/proxy-server",
+              "architecture/token-manager",
+              "architecture/model-router"
+            ]
+          },
+          {
+            "group": "Advanced Topics",
+            "pages": [
+              "architecture/smart-routing",
+              "architecture/quota-protection",
+              "architecture/ja3-fingerprinting",
+              "architecture/self-healing"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "keyFeatures": [
+    "Multi-account OAuth 2.0 management with automatic quota monitoring",
+    "Protocol conversion between OpenAI, Anthropic, and Gemini API formats",
+    "Smart model routing with tiered prioritization and background task optimization",
+    "Real-time quota tracking and best account recommendation algorithm",
+    "Imagen 3 image generation with advanced size and quality controls",
+    "Docker deployment with headless mode for NAS and server environments",
+    "Rate limiting and security features with JA3 fingerprint masking",
+    "Self-healing request retry with automatic account rotation on errors"
+  ],
+  "publicApiSurface": [
+    "/v1/chat/completions (OpenAI-compatible)",
+    "/v1/messages (Anthropic-compatible)",
+    "/v1/images/generate (Image generation)",
+    "/v1/responses (OpenAI Responses API)",
+    "OAuth 2.0 authorization endpoints",
+    "Quota monitoring and account management Tauri commands",
+    "Model routing and mapping configuration",
+    "Rate limiting and security controls"
+  ]
+}
